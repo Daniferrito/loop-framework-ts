@@ -37,11 +37,11 @@ export interface EntityOrTile<PersistentData, LoopData> {
 }
 
 export interface Entity<PersistentData, LoopData> extends EntityOrTile<PersistentData, LoopData> {
-  id: number;
+  active: boolean;
 }
 
 export interface Tile<PersistentData, LoopData> extends EntityOrTile<PersistentData, LoopData> {
-  entityId?: number;
+  entities: Entity<PersistentData, LoopData>[];
 }
 
 export interface PersistentSingleState {
@@ -49,22 +49,27 @@ export interface PersistentSingleState {
   familiarity: PerActionType<number>;
 }
 
+export interface PersistentSingleStateWithPersistentEntities extends PersistentSingleState {
+  entities: PersistentSingleState[];
+}
+
 export interface LoopSingleState {
   timesPerformedThisLoop: PerActionType<number>;
   familiarityThisLoop: PerActionType<number>;
 }
 
-export interface SingleState extends PersistentSingleState, LoopSingleState {}
+export interface SingleState extends PersistentSingleState, LoopSingleState { }
 
 export interface EntityOrTileWithState<PersistentData, LoopData> extends EntityOrTile<PersistentData, LoopData>, SingleState { }
-export interface TileWithState<PersistentData, LoopData> extends Tile<PersistentData, LoopData>, SingleState { }
+export interface TileWithState<PersistentData, LoopData> extends Tile<PersistentData, LoopData>, SingleState {
+  entities: EntityWithState<PersistentData, LoopData>[];
+}
 export interface EntityWithState<PersistentData, LoopData> extends Entity<PersistentData, LoopData>, SingleState { }
 
 export interface TileMap<PersistentData, LoopData> {
   width: number;
   height: number;
   tiles: TileWithState<PersistentData, LoopData>[][];
-  entities: Map<number, EntityWithState<PersistentData, LoopData>>;
 
   defaults: {
     cost: PerActionType<GenericCalc<PersistentData, LoopData>>;
@@ -90,10 +95,10 @@ export class State<PersistentData, LoopData> {
   persistentData: PersistentData;
   loopData: LoopData;
 
-  constructor(tileMap: TileMap<PersistentData, LoopData>, instructions: Instruction[], initialPosition: Coordinates, mana: { max: number, current: number }, persistentData: PersistentData, loopData: LoopData) {
+  constructor(tileMap: TileMap<PersistentData, LoopData>, initialPosition: Coordinates, mana: { max: number, current: number }, persistentData: PersistentData, loopData: LoopData) {
     this.tileMap = tileMap;
     this.instructionList = {
-      instructions,
+      instructions: [],
       index: 0,
       subIndex: 0,
       spentActionMana: 0
@@ -125,11 +130,11 @@ export class State<PersistentData, LoopData> {
     if (onPartialAction) {
       onPartialAction(this, target, actuallySpentMana);
     }
-    
+
     if (this.instructionList.spentActionMana === actionCost) {
       this.instructionList.spentActionMana = 0;
       //Completed the action
-      
+
       const onCompletedAction = target.onCompletedAction[instruction.type] || this.tileMap.defaults.onCompletedAction[instruction.type];
       let preventDefault = false;
       if (onCompletedAction) {
@@ -200,7 +205,7 @@ export class State<PersistentData, LoopData> {
     } else if (instruction.type === "attack") {
       if (isEntity(target)) {
         // Delete the entity
-        this.tileMap.tiles[this.position.y][this.position.x].entityId = undefined;
+        target.active = false;
       }
     }
   }
@@ -216,31 +221,25 @@ export class State<PersistentData, LoopData> {
 
 
   getEntity(tile: TileWithState<PersistentData, LoopData>): EntityWithState<PersistentData, LoopData> | undefined {
-    if (tile.entityId) {
-      const entity = this.tileMap.entities.get(tile.entityId);
-      if (!entity) {
-        throw new Error("Entity not found");
+    for (const entity of tile.entities) {
+      if (entity.active) {
+        return entity;
       }
-      return entity;
-    } else {
-      return undefined;
     }
+    return undefined;
   }
 
 
   serializePermanentState(): string {
     const toSerialize: PermanentState<PersistentData> = {
-      tilesState: this.tileMap.tiles.map(row => row.map((tile: SingleState) => ({
+      tilesState: this.tileMap.tiles.map(row => row.map((tile) => ({
         timesPerformed: tile.timesPerformed,
         familiarity: tile.familiarity,
-      }))),
-      entitiesState: Array.from(this.tileMap.entities).reduce((acc, [id, entity]) => {
-        acc[id] = {
+        entities: tile.entities.map(entity => ({
           timesPerformed: entity.timesPerformed,
           familiarity: entity.familiarity,
-        };
-        return acc;
-      }, {} as {[key: number]: PersistentSingleState}),
+        })),
+      }))),
       instructions: this.instructionList.instructions,
       loopCount: this.loopCount,
       persistentData: this.persistentData,
@@ -254,12 +253,12 @@ export class State<PersistentData, LoopData> {
       const state = parsed.tilesState[y][x];
       tile.timesPerformed = state.timesPerformed;
       tile.familiarity = state.familiarity;
+      tile.entities.forEach((entity, i) => {
+        const entityState = state.entities[i];
+        entity.timesPerformed = entityState.timesPerformed;
+        entity.familiarity = entityState.familiarity;
+      });
     }));
-    this.tileMap.entities.forEach((entity, id) => {
-      const state = parsed.entitiesState[id];
-      entity.timesPerformed = state.timesPerformed;
-      entity.familiarity = state.familiarity;
-    });
     this.instructionList.instructions = parsed.instructions;
     this.loopCount = parsed.loopCount;
     this.persistentData = parsed.persistentData;
@@ -267,12 +266,11 @@ export class State<PersistentData, LoopData> {
 }
 
 function isEntity<PersistentData, LoopData>(entityOrTile: EntityOrTile<PersistentData, LoopData>): entityOrTile is Entity<PersistentData, LoopData> {
-  return (entityOrTile as Entity<PersistentData, LoopData>).id !== undefined;
+  return (entityOrTile as Entity<PersistentData, LoopData>).active !== undefined;
 }
 
 interface PermanentState<PersistentData> {
-  tilesState: PersistentSingleState[][];
-  entitiesState: {[key: number]: PersistentSingleState};
+  tilesState: (PersistentSingleStateWithPersistentEntities)[][];
   instructions: Instruction[];
   loopCount: number;
   persistentData: PersistentData;

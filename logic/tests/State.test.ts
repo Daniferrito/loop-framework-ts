@@ -9,7 +9,7 @@ const flatNumber: (n: number) => GenericCalc<P, L> = (number: number) => () => n
 const familiarityFormula: (formula: (familiarity: number) => number, actionType: ActionType) => GenericCalc<P, L> = (formula, actionType) => (_, target) => formula(target.familiarity[actionType] || 0);
 
 // Helper function to create a TileWithState
-function createWalkableTileWithState(name: string, entityId?: number): TileWithState<P, L> {
+function createWalkableTileWithState(name: string): TileWithState<P, L> {
   return {
     name,
     cost: {move: flatNumber(10)},
@@ -24,14 +24,15 @@ function createWalkableTileWithState(name: string, entityId?: number): TileWithS
     timesPerformed: {},
     timesPerformedThisLoop: {},
 
-    entityId,
+    entities: [],
   };
 }
 
 // Helper function to create an Entity
 function createEntity(id: number, name: string, cost: PerActionType<GenericCalc<P, L>>): EntityWithState<P, L> {
   return {
-    id,
+    active: true,
+
     name,
     cost,
     
@@ -60,7 +61,6 @@ function createNTileTileMap(width: number, height: number, tileGenerator: (coord
     width,
     height,
     tiles,
-    entities: new Map(),
     defaults: {
       cost: {},
       familiarityGain: {move: flatNumber(1)},
@@ -73,7 +73,9 @@ function createNTileTileMap(width: number, height: number, tileGenerator: (coord
 
 //Helper function to create a State with a single move instruction
 function createState(tileMap: TileMap<P, L>, instructions: Instruction[]): BasicState {
-  return new State<{},{}>(tileMap, instructions, {x: 0, y: 0}, {max: 100, current: 100}, {}, {});
+  const state =  new State<{},{}>(tileMap, {x: 0, y: 0}, {max: 100, current: 100}, {}, {});
+  state.instructionList.instructions = instructions;
+  return state;
 }
 
 const moveInstructionRight: MoveInstruction = {name: "Move Right", type: "move", count: 1, x: 1, y: 0};
@@ -95,8 +97,7 @@ describe(`getTargetAndCost`, () => {
   it(`should return the tile target and cost for a move instruction on a tile with an entity with no move function`, () => {
     const entity = createEntity(1, "Enemy", {});
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
     const {target, cost} = state.getTargetAndCost();
     expect(target).toBe(state.tileMap.tiles[0][0]);
     expect(cost).toBe(10);
@@ -104,8 +105,7 @@ describe(`getTargetAndCost`, () => {
   it(`should return the entity target and cost for a move instruction on a tile with an entity with a move function`, () => {
     const entity = createEntity(1, "Enemy", {move: flatNumber(5)});
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
     const {target, cost} = state.getTargetAndCost();
     expect(target).toBe(entity);
     expect(cost).toBe(5);
@@ -121,8 +121,7 @@ describe(`getTargetAndCost`, () => {
   it(`should return the entity target and default cost for a move instruction on a tile with an entity with no move function and no entity cost`, () => {
     const entity = createEntity(1, "Enemy", {});
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
     state.tileMap.defaults.cost.move = flatNumber(7);
     const {target, cost} = state.getTargetAndCost();
     expect(target).toBe(entity);
@@ -131,8 +130,7 @@ describe(`getTargetAndCost`, () => {
   it(`should throw if there is no cost for the action on the entity, tile or default`, () => {
     const entity = createEntity(1, "Enemy", {});
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
     state.tileMap.tiles[0][0].cost = {};
     state.tileMap.defaults.cost = {};
     expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity ${entity.name}, tile ${state.tileMap.tiles[0][0].name}, or defaults"`);
@@ -276,7 +274,6 @@ describe(`advanceState`, () => {
   });
   it(`should fail if the destination is outside the map for each direction`, () => {
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    console.log(JSON.stringify(state, null, 4))
     expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move (outside of map)"`);
     state.instructionList.instructions[0] = moveInstructionLeft;
     expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move (outside of map)"`);
@@ -357,8 +354,7 @@ describe(`performAction`, () => {
   it(`should delete the entity if the action is an attack action and the target is an entity`, () => {
     const entity = createEntity(1, "Enemy", {});
     const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
     state.performAction({name: "Attack", type: "attack", count: 1}, entity);
     expect(state.getEntity(state.tileMap.tiles[0][0])).toBeUndefined();
   });
@@ -368,18 +364,12 @@ describe(`getEntity`, () => {
   it(`should return the entity if there is one`, () => {
     const entity = createEntity(1, "Enemy", {});
     const state: BasicState = createState(createNTileTileMap(1, 1), []);
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
     expect(state.getEntity(state.tileMap.tiles[0][0])).toBe(entity);
   });
   it(`should return undefined if there is no entity`, () => {
     const state: BasicState = createState(createNTileTileMap(1, 1), []);
     expect(state.getEntity(state.tileMap.tiles[0][0])).toBeUndefined();
-  });
-  it(`should throw if the entityId is not in the entities map`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), []);
-    state.tileMap.tiles[0][0].entityId = 1;
-    expect(() => state.getEntity(state.tileMap.tiles[0][0])).toThrowErrorMatchingInlineSnapshot(`"Entity not found"`);
   });
 });
 
@@ -392,8 +382,7 @@ describe(`deserializePermanentState`, () => {
 
     const entity = createEntity(1, "Enemy", {});
     entity.familiarity.move = 1;
-    state.tileMap.tiles[0][0].entityId = 1;
-    state.tileMap.entities.set(1, entity);
+    state.tileMap.tiles[0][0].entities.push(entity);
 
     state.tileMap.tiles[0][0].familiarity.move = 1;
     state.tileMap.tiles[0][1].familiarity.move = 10;
@@ -419,8 +408,7 @@ describe(`deserializePermanentState`, () => {
 
     const newEntity = createEntity(1, "Enemy", {});
     entity.familiarity.move = 2;
-    initialState.tileMap.tiles[0][1].entityId = 1;
-    initialState.tileMap.entities.set(1, newEntity);
+    initialState.tileMap.tiles[0][0].entities.push(newEntity);
 
     initialState.tileMap.tiles[0][0].familiarity.move = 2;
     initialState.tileMap.tiles[0][1].familiarity.move = 20;
@@ -439,8 +427,7 @@ describe(`deserializePermanentState`, () => {
 
     expect(initialState.mana.current).toEqual(100);
     expect(initialState.position).toEqual({x: 0, y: 1});
-    expect(initialState.tileMap.tiles[0][0].entityId).toEqual(undefined);
-    expect(initialState.tileMap.tiles[0][1].entityId).toEqual(1);
+    expect(initialState.tileMap.tiles[0][0].entities[0].familiarity.move).toEqual(1);
 
     expect(initialState.tileMap.tiles[0][0].familiarity.move).toEqual(1);
     expect(initialState.tileMap.tiles[0][1].familiarity.move).toEqual(10);
@@ -451,8 +438,6 @@ describe(`deserializePermanentState`, () => {
     expect(initialState.tileMap.tiles[0][1].timesPerformed.move).toEqual(10);
     expect(initialState.tileMap.tiles[0][0].timesPerformedThisLoop.move).toEqual(6);
     expect(initialState.tileMap.tiles[0][1].timesPerformedThisLoop.move).toEqual(60);
-
-    expect(initialState.tileMap.entities.get(1)?.familiarity.move).toEqual(1);
 
     expect(initialState.persistentData).toEqual(persistent);
     expect(initialState.persistentData).not.toBe(persistent);
