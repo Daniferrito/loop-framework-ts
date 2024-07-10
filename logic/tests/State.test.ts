@@ -1,15 +1,19 @@
-import { ActionType, Coordinates, EntityWithState, GenericCalc, Instruction, MoveInstruction, PerActionType, State, TileMap, TileWithState } from "../src/State";
+import { Coordinates, EntityWithState, GenericCalc, Instruction, MoveInstruction, PerActionType, State, TileMap, TileWithState } from "../src/State";
 
+type AT = "attack";
+type FullAT = "move" | AT;
 type P = {};
 type L = {};
-type BasicState = State<P, L>;
+type iP = {};
+type iL = {};
+type BasicState = State<AT, P, L, iP, iL>;
 
-const flatNumber: (n: number) => GenericCalc<P, L> = (number: number) => () => number;
+const flatNumber: (n: number) => GenericCalc<AT, P, L, iP, iL> = (number: number) => () => number;
 
-const familiarityFormula: (formula: (familiarity: number) => number, actionType: ActionType) => GenericCalc<P, L> = (formula, actionType) => (_, target) => formula(target.familiarity[actionType] || 0);
+const familiarityFormula: (formula: (familiarity: number) => number, actionType: FullAT) => GenericCalc<AT, P, L, iP, iL> = (formula, actionType) => (_, target) => formula(target.familiarity[actionType] || 0);
 
 // Helper function to create a TileWithState
-function createWalkableTileWithState(name: string): TileWithState<P, L> {
+function createWalkableTileWithState(name: string): TileWithState<AT, P, L, iP, iL> {
   return {
     name,
     cost: {move: flatNumber(10)},
@@ -24,12 +28,15 @@ function createWalkableTileWithState(name: string): TileWithState<P, L> {
     timesPerformed: {},
     timesPerformedThisLoop: {},
 
+    loopData: {},
+    persistentData: {},
+
     entities: [],
   };
 }
 
 // Helper function to create an Entity
-function createEntity(id: number, name: string, cost: PerActionType<GenericCalc<P, L>>): EntityWithState<P, L> {
+function createEntity(id: number, name: string, cost: PerActionType<AT, GenericCalc<AT, P, L, iP, iL>>): EntityWithState<AT, P, L, iP, iL> {
   return {
     active: true,
 
@@ -45,13 +52,16 @@ function createEntity(id: number, name: string, cost: PerActionType<GenericCalc<
 
     timesPerformed: {},
     timesPerformedThisLoop: {},
+
+    loopData: {},
+    persistentData: {},
   };
 }
 
-function createNTileTileMap(width: number, height: number, tileGenerator: (coords: Coordinates) => TileWithState<P, L> = (coords) => createWalkableTileWithState(`Tile ${coords.x}, ${coords.y}`)): TileMap<P, L> {
-  const tiles: TileWithState<P, L>[][] = [];
+function createNTileTileMap(width: number, height: number, tileGenerator: (coords: Coordinates) => TileWithState<AT, P, L, iP, iL> = (coords) => createWalkableTileWithState(`Tile ${coords.x}, ${coords.y}`)): TileMap<AT, P, L, iP, iL> {
+  const tiles: TileWithState<AT, P, L, iP, iL>[][] = [];
   for (let i = 0; i < height; i++) {
-    const row: TileWithState<P, L>[] = [];
+    const row: TileWithState<AT, P, L, iP, iL>[] = [];
     for (let j = 0; j < width; j++) {
       row.push(tileGenerator({x: j, y: i}));
     }
@@ -63,8 +73,12 @@ function createNTileTileMap(width: number, height: number, tileGenerator: (coord
     tiles,
     defaults: {
       cost: {},
-      familiarityGain: {move: flatNumber(1)},
+      familiarityGain: {},
 
+      onPartialAction: {},
+      onCompletedAction: {},
+    },
+    always: {
       onPartialAction: {},
       onCompletedAction: {},
     },
@@ -72,16 +86,25 @@ function createNTileTileMap(width: number, height: number, tileGenerator: (coord
 }
 
 //Helper function to create a State with a single move instruction
-function createState(tileMap: TileMap<P, L>, instructions: Instruction[]): BasicState {
-  const state =  new State<{},{}>(tileMap, {x: 0, y: 0}, {max: 100, current: 100}, {}, {});
+function createState(tileMap: TileMap<AT, P, L, iP, iL>, instructions: Instruction<AT>[]): BasicState {
+  const state =  new State<AT, P, L, iP, iL>(
+    () => ({
+      tileMap,
+      possibleActions: [],
+      initialPosition: {x: 0, y: 0},
+      mana: {max: 100, current: 100},
+      persistentData: {},
+      loopData: {},
+    })
+  )
   state.instructionList.instructions = instructions;
   return state;
 }
 
-const moveInstructionRight: MoveInstruction = {name: "Move Right", type: "move", count: 1, x: 1, y: 0};
-const moveInstructionLeft: MoveInstruction = {name: "Move Left", type: "move", count: 1, x: -1, y: 0};
-const moveInstructionUp: MoveInstruction = {name: "Move Up", type: "move", count: 1, x: 0, y: -1};
-const moveInstructionDown: MoveInstruction = {name: "Move Down", type: "move", count: 1, x: 1, y: 1};
+const moveInstructionRight: MoveInstruction = {name: "Move Right", type: "move", count: 1, movement:{ x: 1, y: 0}};
+const moveInstructionLeft: MoveInstruction = {name: "Move Left", type: "move", count: 1, movement:{ x: -1, y: 0}};
+const moveInstructionUp: MoveInstruction = {name: "Move Up", type: "move", count: 1, movement:{ x: 0, y: -1}};
+const moveInstructionDown: MoveInstruction = {name: "Move Down", type: "move", count: 1, movement:{ x: 1, y: 1}};
 
 describe(`getTargetAndCost`, () => {
   it(`should fail if there are no instructions in the list`, () => {
@@ -133,13 +156,13 @@ describe(`getTargetAndCost`, () => {
     state.tileMap.tiles[0][0].entities.push(entity);
     state.tileMap.tiles[0][0].cost = {};
     state.tileMap.defaults.cost = {};
-    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity ${entity.name}, tile ${state.tileMap.tiles[0][0].name}, or defaults"`);
+    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity ${entity.name}, tile ${state.tileMap.tiles[0][0].name}, or defaults, on position 0, 0"`);
   });
   it(`should throw if there is no cost for the action on the tile or default, and there is no entity`, () => {
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
     state.tileMap.tiles[0][0].cost = {};
     state.tileMap.defaults.cost = {};
-    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity undefined, tile ${state.tileMap.tiles[0][0].name}, or defaults"`);
+    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity undefined, tile ${state.tileMap.tiles[0][0].name}, or defaults, on position 0, 0"`);
   });
   it(`should apply the familiarity cost to the cost`, () => {
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
@@ -149,14 +172,14 @@ describe(`getTargetAndCost`, () => {
     const {target, cost} = state.getTargetAndCost();
     expect(target).toBe(state.tileMap.tiles[0][0]);
     expect(cost).toBe(10 * (1 / (1 + 2)));
-    expect(usedFamiliarityFormula).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0]);
+    expect(usedFamiliarityFormula).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
   });
   it(`cost function should be called with the state and the target`, () => {
     const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
     const costFunction = jest.fn(flatNumber(10));
     state.tileMap.tiles[0][0].cost.move = costFunction;
     state.getTargetAndCost();
-    expect(costFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0]);
+    expect(costFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
   });
 });
 
@@ -292,21 +315,21 @@ describe(`advanceState`, () => {
     const familiarityGainFunction = jest.fn(flatNumber(1));
     state.tileMap.tiles[0][0].familiarityGain.move = familiarityGainFunction;
     state.advanceState(10);
-    expect(familiarityGainFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0]);
+    expect(familiarityGainFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
   })
   it(`onPartialAction function should be called with the state and the target on a non-complete action`, () => {
     const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
     const onPartialActionFunction = jest.fn();
     state.tileMap.tiles[0][0].onPartialAction.move = onPartialActionFunction;
     state.advanceState(5);
-    expect(onPartialActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], 5);
+    expect(onPartialActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], 5, {x: 0, y: 0});
   });
   it(`onPartialAction function should not be called with the state and the target on a complete action`, () => {
     const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
     const onPartialActionFunction = jest.fn();
     state.tileMap.tiles[0][0].onPartialAction.move = onPartialActionFunction;
     state.advanceState(15);
-    expect(onPartialActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], 10);
+    expect(onPartialActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], 10, {x: 0, y: 0});
   });
   it(`onCompletedAction function should not be called on an incomplete action`, () => {
     const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
@@ -317,10 +340,10 @@ describe(`advanceState`, () => {
   });
   it(`onCompletedAction function with no preventDefault should be called with the state and the target on a complete action and still move the character`, () => {
     const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const onCompletedActionFunction = jest.fn(()=>false);
+    const onCompletedActionFunction = jest.fn(() => false);
     state.tileMap.tiles[0][0].onCompletedAction.move = onCompletedActionFunction;
     state.advanceState(15);
-    expect(onCompletedActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0]);
+    expect(onCompletedActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
     expect(state.position).toEqual({x: 1, y: 0});
   });
   it(`onCompletedAction function with preventDefault should be called with the state and the target on a complete action and dont move the character`, () => {
@@ -328,7 +351,7 @@ describe(`advanceState`, () => {
     const onCompletedActionFunction = jest.fn(()=>true);
     state.tileMap.tiles[0][0].onCompletedAction.move = onCompletedActionFunction;
     state.advanceState(15);
-    expect(onCompletedActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0]);
+    expect(onCompletedActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
     expect(state.position).toEqual({x: 0, y: 0});
   });
   it(`should fail if the manaToSpend is negative or zero`, () => {
@@ -342,21 +365,6 @@ describe(`advanceState`, () => {
     const remainingMana = state.advanceState(5);
     expect(remainingMana).toBe(10);
     expect(state.position).toEqual({x: 1, y: 0});
-  });
-});
-
-describe(`performAction`, () => {
-  it(`should move the character if the action is a move action`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    state.performAction(moveInstructionRight, state.tileMap.tiles[0][0]);
-    expect(state.position).toEqual({x: 1, y: 0});
-  });
-  it(`should delete the entity if the action is an attack action and the target is an entity`, () => {
-    const entity = createEntity(1, "Enemy", {});
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entities.push(entity);
-    state.performAction({name: "Attack", type: "attack", count: 1}, entity);
-    expect(state.getEntity(state.tileMap.tiles[0][0])).toBeUndefined();
   });
 });
 
