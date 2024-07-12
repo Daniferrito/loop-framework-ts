@@ -1,405 +1,246 @@
-import { Coordinates, EntityWithState, GenericCalc, Instruction, MoveInstruction, PerActionType, State, TileMap, TileWithState } from "../src/State";
+import { State, GenericCalc, TileMap, TileDefinition, Cell, Action, ActionDefinition } from "../src";
 
-type AT = "attack";
-type FullAT = "move" | AT;
-type P = {};
-type L = {};
-type iP = {};
-type iL = {};
-type BasicState = State<AT, P, L, iP, iL>;
+type AT = "move" | "attack";
+type AD = {x: number, y: number};
+type TP = {};
+type TL = {};
+type TDL = {};
+type CP = {};
+type CL = {};
+type GP = {};
+type GL = {};
+type BasicState = State<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
 
-const flatNumber: (n: number) => GenericCalc<AT, P, L, iP, iL> = (number: number) => () => number;
-
-const familiarityFormula: (formula: (familiarity: number) => number, actionType: FullAT) => GenericCalc<AT, P, L, iP, iL> = (formula, actionType) => (_, target) => formula(target.familiarity[actionType] || 0);
+const flatNumber: (n: number) => GenericCalc<AT, AD, TP, TL, TDL, CP, CL, GP, GL> = (number: number) => () => number;
 
 // Helper function to create a TileWithState
-function createWalkableTileWithState(name: string): TileWithState<AT, P, L, iP, iL> {
+function createWalkableTileWithState(name: string): TileDefinition<AT, AD, TP, TL, TDL, CP, CL, GP, GL> {
   return {
     name,
     cost: {move: flatNumber(10)},
-
-    familiarity: {},
-    familiarityThisLoop: {},
-    familiarityGain: {move: flatNumber(1)},
-
-    onPartialAction: {},
-    onCompletedAction: {},
-
-    timesPerformed: {},
-    timesPerformedThisLoop: {},
-
-    loopData: {},
-    persistentData: {},
-
-    entities: [],
+    definitionLoopData: {},
   };
 }
 
-// Helper function to create an Entity
-function createEntity(id: number, name: string, cost: PerActionType<AT, GenericCalc<AT, P, L, iP, iL>>): EntityWithState<AT, P, L, iP, iL> {
-  return {
-    active: true,
-
-    name,
-    cost,
-    
-    familiarity: {},
-    familiarityThisLoop: {},
-    familiarityGain: {move: flatNumber(1)},
-
-    onPartialAction: {},
-    onCompletedAction: {},
-
-    timesPerformed: {},
-    timesPerformedThisLoop: {},
-
-    loopData: {},
-    persistentData: {},
-  };
-}
-
-function createNTileTileMap(width: number, height: number, tileGenerator: (coords: Coordinates) => TileWithState<AT, P, L, iP, iL> = (coords) => createWalkableTileWithState(`Tile ${coords.x}, ${coords.y}`)): TileMap<AT, P, L, iP, iL> {
-  const tiles: TileWithState<AT, P, L, iP, iL>[][] = [];
-  for (let i = 0; i < height; i++) {
-    const row: TileWithState<AT, P, L, iP, iL>[] = [];
-    for (let j = 0; j < width; j++) {
-      row.push(tileGenerator({x: j, y: i}));
+function createSameNTileTileMap(width: number, height: number, tileDefinition?: TileDefinition<AT, AD, TP, TL, TDL, CP, CL, GP, GL>): TileMap<AT, AD, TP, TL, TDL, CP, CL, GP, GL> {
+  const finalTileDefinition: TileDefinition<AT, AD, TP, TL, TDL, CP, CL, GP, GL> = tileDefinition ?? createWalkableTileWithState("Grass");
+  const tileID = 0;
+  const cells: Cell<TP, TL>[][] = [];
+  for (let y = 0; y < height; y++) {
+    const row: Cell<TP, TL>[] = [];
+    for (let x = 0; x < width; x++) {
+      row.push({tiles: [{id: tileID, persistentData: {}, loopData: {}}]});
     }
-    tiles.push(row);
+    cells.push(row);
   }
-  return {
-    width,
-    height,
-    tiles,
-    defaults: {
-      cost: {},
-      familiarityGain: {},
 
-      onPartialAction: {},
-      onCompletedAction: {},
-    },
-    always: {
-      onPartialAction: {},
-      onCompletedAction: {},
-    },
+  return {
+    cells: [[cells]],
+    tileDefinitions: {[tileID]: finalTileDefinition},
   };
 }
 
-//Helper function to create a State with a single move instruction
-function createState(tileMap: TileMap<AT, P, L, iP, iL>, instructions: Instruction<AT>[]): BasicState {
-  const state =  new State<AT, P, L, iP, iL>(
+//Helper function to create a State with a single character
+function createSingleCharacterState(tileMap: TileMap<AT, AD, TP, TL, TDL, CP, CL, GP, GL>, actions: Action[] = [], actionDefinitions: { [id: number]: ActionDefinition<AT, AD> } = defaultActionDefinitions): BasicState {
+  const state =  new State<AT, AD, TP, TL, TDL, CP, CL, GP, GL>(
     () => ({
       tileMap,
-      possibleActions: [],
-      initialPosition: {x: 0, y: 0},
-      mana: {max: 100, current: 100},
+      characters: [{
+        name: "Player",
+        position: {i: 0, j: 0, x: 0, y: 0},
+        actionList: {
+          actions,
+          possibleActions: actionDefinitions,
+          index: 0,
+          subIndex: 0,
+          spentActionMana: 0,
+        },
+        persistentData: {},
+        loopData: {}
+      }],
+      possibleActions: actionDefinitions,
+      alwaysCallbacks: {
+        onCompleteAction: {
+          move: [({state, action}) => {
+            const oP = state.characters[0].position;
+            const dP = action.data;
+            state.characters[0].position = {i: oP.i, j: oP.j, x: oP.x+dP.x, y: oP.y+dP.y};
+            return false;
+          }]
+        }
+      },
       persistentData: {},
       loopData: {},
     })
   )
-  state.instructionList.instructions = instructions;
   return state;
 }
 
-const moveInstructionRight: MoveInstruction = {name: "Move Right", type: "move", count: 1, movement:{ x: 1, y: 0}};
-const moveInstructionLeft: MoveInstruction = {name: "Move Left", type: "move", count: 1, movement:{ x: -1, y: 0}};
-const moveInstructionUp: MoveInstruction = {name: "Move Up", type: "move", count: 1, movement:{ x: 0, y: -1}};
-const moveInstructionDown: MoveInstruction = {name: "Move Down", type: "move", count: 1, movement:{ x: 1, y: 1}};
+const moveActionRight: Action = {id: 0, repetitions: 1, global: true};
+const moveActionLeft: Action = {id: 1, repetitions: 1, global: true};
+const moveActionUp: Action = {id: 2, repetitions: 1, global: true};
+const moveActionDown: Action = {id: 3, repetitions: 1, global: true};
 
-describe(`getTargetAndCost`, () => {
-  it(`should fail if there are no instructions in the list`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), []);
-    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No more actions to perform"`);
-  });
-  it(`should return the tile target and cost for a move instruction on a tile with no entity`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    const {target, cost} = state.getTargetAndCost();
-    expect(target).toBe(state.tileMap.tiles[0][0]);
-    expect(cost).toBe(10);
-  });
-  it(`should return the tile target and cost for a move instruction on a tile with an entity with no move function`, () => {
-    const entity = createEntity(1, "Enemy", {});
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entities.push(entity);
-    const {target, cost} = state.getTargetAndCost();
-    expect(target).toBe(state.tileMap.tiles[0][0]);
-    expect(cost).toBe(10);
-  });
-  it(`should return the entity target and cost for a move instruction on a tile with an entity with a move function`, () => {
-    const entity = createEntity(1, "Enemy", {move: flatNumber(5)});
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entities.push(entity);
-    const {target, cost} = state.getTargetAndCost();
-    expect(target).toBe(entity);
-    expect(cost).toBe(5);
-  });
-  it(`should return the tile target and default cost for a move instruction on a tile with no entity and no tile cost`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].cost = {};
-    state.tileMap.defaults.cost.move = flatNumber(7);
-    const {target, cost} = state.getTargetAndCost();
-    expect(target).toBe(state.tileMap.tiles[0][0]);
-    expect(cost).toBe(7);
-  });
-  it(`should return the entity target and default cost for a move instruction on a tile with an entity with no move function and no entity cost`, () => {
-    const entity = createEntity(1, "Enemy", {});
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entities.push(entity);
-    state.tileMap.defaults.cost.move = flatNumber(7);
-    const {target, cost} = state.getTargetAndCost();
-    expect(target).toBe(entity);
-    expect(cost).toBe(7);
-  });
-  it(`should throw if there is no cost for the action on the entity, tile or default`, () => {
-    const entity = createEntity(1, "Enemy", {});
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].entities.push(entity);
-    state.tileMap.tiles[0][0].cost = {};
-    state.tileMap.defaults.cost = {};
-    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity ${entity.name}, tile ${state.tileMap.tiles[0][0].name}, or defaults, on position 0, 0"`);
-  });
-  it(`should throw if there is no cost for the action on the tile or default, and there is no entity`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].cost = {};
-    state.tileMap.defaults.cost = {};
-    expect(() => state.getTargetAndCost()).toThrowErrorMatchingInlineSnapshot(`"No action cost found for move on entity undefined, tile ${state.tileMap.tiles[0][0].name}, or defaults, on position 0, 0"`);
-  });
-  it(`should apply the familiarity cost to the cost`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].familiarity.move = 2;
-    const usedFamiliarityFormula = jest.fn(familiarityFormula((familiarity) => 10 * (1 / (1 + familiarity)), "move"));
-    state.tileMap.tiles[0][0].cost.move = usedFamiliarityFormula
-    const {target, cost} = state.getTargetAndCost();
-    expect(target).toBe(state.tileMap.tiles[0][0]);
-    expect(cost).toBe(10 * (1 / (1 + 2)));
-    expect(usedFamiliarityFormula).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
-  });
-  it(`cost function should be called with the state and the target`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    const costFunction = jest.fn(flatNumber(10));
-    state.tileMap.tiles[0][0].cost.move = costFunction;
-    state.getTargetAndCost();
-    expect(costFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
-  });
-});
+const moveActionDefinitionRight: ActionDefinition<AT,AD> = {name: "Move Right", type: "move", data:{ x: 1, y: 0 }};
+const moveActionDefinitionLeft: ActionDefinition<AT,AD> = {name: "Move Left", type: "move", data:{ x: -1, y: 0 }};
+const moveActionDefinitionUp: ActionDefinition<AT,AD> = {name: "Move Up", type: "move", data:{ x: 0, y: -1 }};
+const moveActionDefinitionDown: ActionDefinition<AT,AD> = {name: "Move Down", type: "move", data:{ x: 1, y: 1 }};
+
+const defaultActionDefinitions: { [id: number]: ActionDefinition<AT, AD> } = {
+  0: moveActionDefinitionRight,
+  1: moveActionDefinitionLeft,
+  2: moveActionDefinitionUp,
+  3: moveActionDefinitionDown,
+};
 
 describe(`advanceState`, () => {
   it('should behave correctly on a move action with not enough mana', () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const remainingMana = state.advanceState(5);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
+    const response = state.advanceState(5);
     // Check that all the mana has been spent
-    expect(remainingMana).toBe(0);
+    expect(response.leftoverMana).toBe(0);
+    expect(response.spentMana).toBe(5);
+    // CHeck that no action was completed
+    expect(response.actionCompleted).toBe(false);
     // Check that the position has not been updated
-    expect(state.position).toEqual({x: 0, y: 0});
+    expect(state.characters[0].position).toEqual({i: 0, j: 0, x: 0, y: 0});
     // Check that the instruction list has not been updated
-    expect(state.instructionList.index).toBe(0);
+    expect(state.characters[0].actionList.index).toBe(0);
     // Check that the subIndex has not been updated
-    expect(state.instructionList.subIndex).toBe(0);
+    expect(state.characters[0].actionList.subIndex).toBe(0);
     // Check that the spentActionMana has been updated
-    expect(state.instructionList.spentActionMana).toBe(5);
-    // Check that the current mana was deducted
-    expect(state.mana.current).toBe(95);
-    // Check that the familiarity was not updated
-    expect(state.tileMap.tiles[0][0].familiarity.move || 0).toEqual(0);
-    // Check that the loop familiarity was not updated
-    expect(state.tileMap.tiles[0][0].familiarityThisLoop.move || 0).toEqual(0);
-    // Check that the timesPerformed was not updated
-    expect(state.tileMap.tiles[0][0].timesPerformed.move || 0).toEqual(0);
-    // Check that the timesPerformedThisLoop was not updated
-    expect(state.tileMap.tiles[0][0].timesPerformedThisLoop.move || 0).toEqual(0);
+    expect(state.characters[0].actionList.spentActionMana).toBe(5);
   });
   it('should behave correctly on a move command with too much mana', () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const remainingMana = state.advanceState(15);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
+    const response = state.advanceState(15);
     // Check that there is remaining mana
-    expect(remainingMana).toBe(5);
+    expect(response.spentMana).toBe(10);
+    expect(response.leftoverMana).toBe(5);
     // Check that the position has been updated
-    expect(state.position).toEqual({x: 1, y: 0});
+    expect(state.characters[0].position).toEqual({i: 0, j: 0, x: 1, y: 0});
     // Check that the instruction list has been updated
-    expect(state.instructionList.index).toBe(1);
+    expect(state.characters[0].actionList.index).toBe(1);
     // Check that the subIndex has been updated
-    expect(state.instructionList.subIndex).toBe(0);
+    expect(state.characters[0].actionList.subIndex).toBe(0);
     // Check that the spentActionMana has been updated
-    expect(state.instructionList.spentActionMana).toBe(0);
-    // Check that the current mana was deducted
-    expect(state.mana.current).toBe(90);
-    // Check that the familiarity was updated
-    expect(state.tileMap.tiles[0][0].familiarity.move || 0).toEqual(1);
-    // Check that the loop familiarity was updated
-    expect(state.tileMap.tiles[0][0].familiarityThisLoop.move || 0).toEqual(1);
-    // Check that the timesPerformed was updated
-    expect(state.tileMap.tiles[0][0].timesPerformed.move || 0).toEqual(1);
-    // Check that the timesPerformedThisLoop was updated
-    expect(state.tileMap.tiles[0][0].timesPerformedThisLoop.move || 0).toEqual(1);
+    expect(state.characters[0].actionList.spentActionMana).toBe(0);
   });
   it(`should behave correctly on a move command with exactly enough mana`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const remainingMana = state.advanceState(10);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
+    const response = state.advanceState(10);
     // Check that there is no remaining mana
-    expect(remainingMana).toBe(0);
+    expect(response.leftoverMana).toBe(0);
+    expect(response.spentMana).toBe(10);
     // Check that the position has been updated
-    expect(state.position).toEqual({x: 1, y: 0});
+    expect(state.characters[0].position).toEqual({i: 0, j: 0, x: 1, y: 0});
     // Check that the instruction list has been updated
-    expect(state.instructionList.index).toBe(1);
+    expect(state.characters[0].actionList.index).toBe(1);
     // Check that the subIndex has been updated
-    expect(state.instructionList.subIndex).toBe(0);
+    expect(state.characters[0].actionList.subIndex).toBe(0);
     // Check that the spentActionMana has been updated
-    expect(state.instructionList.spentActionMana).toBe(0);
-    // Check that the current mana was deducted
-    expect(state.mana.current).toBe(90);
-    // Check that the familiarity was updated
-    expect(state.tileMap.tiles[0][0].familiarity.move || 0).toEqual(1);
+    expect(state.characters[0].actionList.spentActionMana).toBe(0);
   });
   it(`should return to the start on a two move command`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight, moveInstructionLeft]);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight, moveActionLeft]);
     state.advanceState(10);
     state.advanceState(10);
     // Check that the position has been updated
-    expect(state.position).toEqual({x: 0, y: 0});
+    expect(state.characters[0].position).toEqual({i: 0, j: 0, x: 0, y: 0});
     // Check that the instruction list has been updated
-    expect(state.instructionList.index).toBe(2);
+    expect(state.characters[0].actionList.index).toBe(2);
     // Check that the subIndex has been updated
-    expect(state.instructionList.subIndex).toBe(0);
+    expect(state.characters[0].actionList.subIndex).toBe(0);
     // Check that the spentActionMana has been updated
-    expect(state.instructionList.spentActionMana).toBe(0);
-    // Check that the current mana was deducted
-    expect(state.mana.current).toBe(80);
-    // Check that the familiarity was updated
-    expect(state.tileMap.tiles[0][0].familiarity.move || 0).toEqual(1);
-    expect(state.tileMap.tiles[0][1].familiarity.move || 0).toEqual(1);
-    // Check that the timesPerformed was updated
-    expect(state.tileMap.tiles[0][0].timesPerformed.move || 0).toEqual(1);
-    expect(state.tileMap.tiles[0][1].timesPerformed.move || 0).toEqual(1);
+    expect(state.characters[0].actionList.spentActionMana).toBe(0);
   });
   it(`should behave correctly on a move command with a count of two`, () => {
-    const state: BasicState = createState(createNTileTileMap(3, 1), [{...moveInstructionRight, count: 2}]);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(3, 1), [{...moveActionRight, repetitions: 2}]);
     state.advanceState(10);
     state.advanceState(10);
     // Check that the position has been updated
-    expect(state.position).toEqual({x: 2, y: 0});
+    expect(state.characters[0].position).toEqual({i: 0, j: 0, x: 2, y: 0});
     // Check that the instruction list has been updated
-    expect(state.instructionList.index).toBe(1);
+    expect(state.characters[0].actionList.index).toBe(1);
     // Check that the subIndex has been updated
-    expect(state.instructionList.subIndex).toBe(0);
+    expect(state.characters[0].actionList.subIndex).toBe(0);
     // Check that the spentActionMana has been updated
-    expect(state.instructionList.spentActionMana).toBe(0);
-    // Check that the current mana was deducted
-    expect(state.mana.current).toBe(80);
-    // Check that the familiarity was updated
-    expect(state.tileMap.tiles[0][0].familiarity.move || 0).toEqual(1);
-    expect(state.tileMap.tiles[0][1].familiarity.move || 0).toEqual(1);
+    expect(state.characters[0].actionList.spentActionMana).toBe(0);
   });
-  it(`should fail if there is no familiarity gain for the action`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][0].familiarityGain = {};
-    state.tileMap.defaults.familiarityGain = {};
-    expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"No familiarity gain function found for move on ${state.tileMap.tiles[0][0].name} or defaults"`);
-  });
-  it(`should fail if the destination is outside the map for each direction`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), [moveInstructionRight]);
-    expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move (outside of map)"`);
-    state.instructionList.instructions[0] = moveInstructionLeft;
-    expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move (outside of map)"`);
-    state.instructionList.instructions[0] = moveInstructionUp;
-    expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move (outside of map)"`);
-    state.instructionList.instructions[0] = moveInstructionDown;
-    expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move (outside of map)"`);
-  });
-  it(`should fail if the destination is blocked`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    state.tileMap.tiles[0][1].blocked = true;
-    expect(() => state.advanceState(10)).toThrowErrorMatchingInlineSnapshot(`"Invalid move"`);
-  });
-  it(`familiarityGain function should be called with the state and the target`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const familiarityGainFunction = jest.fn(flatNumber(1));
-    state.tileMap.tiles[0][0].familiarityGain.move = familiarityGainFunction;
-    state.advanceState(10);
-    expect(familiarityGainFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
-  })
   it(`onPartialAction function should be called with the state and the target on a non-complete action`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
     const onPartialActionFunction = jest.fn();
-    state.tileMap.tiles[0][0].onPartialAction.move = onPartialActionFunction;
+    const tileRef = state.tileMap.cells[0][0][0][0].tiles[0]
+    const tile = state.tileMap.tileDefinitions[tileRef.id]
+    tile.callbacks = {
+      onProgressAction: {move: [onPartialActionFunction]}
+    };
     state.advanceState(5);
-    expect(onPartialActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], 5, {x: 0, y: 0});
+    const expectedFnInput = {
+      state,
+      action: {...moveActionRight, ...moveActionDefinitionRight},
+      character: state.characters[0],
+      target: {...tile, ...tileRef},
+      targetPos: {i: 0, j: 0, x: 0, y: 0},
+      spentMana: 5
+    };
+    expect(onPartialActionFunction).toHaveBeenCalledWith(expectedFnInput);
   });
   it(`onPartialAction function should not be called with the state and the target on a complete action`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
     const onPartialActionFunction = jest.fn();
-    state.tileMap.tiles[0][0].onPartialAction.move = onPartialActionFunction;
+    const tileRef = state.tileMap.cells[0][0][0][0].tiles[0]
+    const tile = state.tileMap.tileDefinitions[tileRef.id]
+    tile.callbacks = {
+      onProgressAction: {move: [onPartialActionFunction]}
+    };
     state.advanceState(15);
-    expect(onPartialActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], 10, {x: 0, y: 0});
+    const expectedFnInput = {
+      state,
+      action: {...moveActionRight, ...moveActionDefinitionRight},
+      character: state.characters[0],
+      target: {...tile, ...tileRef},
+      targetPos: {i: 0, j: 0, x: 0, y: 0},
+      spentMana: 10
+    };
+    expect(onPartialActionFunction).toHaveBeenCalledWith(expectedFnInput);
   });
   it(`onCompletedAction function should not be called on an incomplete action`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
     const onCompletedActionFunction = jest.fn();
-    state.tileMap.tiles[0][0].onCompletedAction.move = onCompletedActionFunction;
+    const tile = state.tileMap.tileDefinitions[state.tileMap.cells[0][0][0][0].tiles[0].id]
+    tile.callbacks = {
+      onCompleteAction: {move: [onCompletedActionFunction]}
+    };
     state.advanceState(5);
-    expect(onCompletedActionFunction).not.toHaveBeenCalled();
+    const expectedFnInput = {
+      state,
+      action: {...moveActionRight, ...moveActionDefinitionRight},
+      character: state.characters[0],
+      target: tile,
+      targetPos: {i: 0, j: 0, x: 0, y: 0}
+    };
+    expect(onCompletedActionFunction).not.toHaveBeenCalledWith(expectedFnInput);
   });
-  it(`onCompletedAction function with no preventDefault should be called with the state and the target on a complete action and still move the character`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const onCompletedActionFunction = jest.fn(() => false);
-    state.tileMap.tiles[0][0].onCompletedAction.move = onCompletedActionFunction;
-    state.advanceState(15);
-    expect(onCompletedActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
-    expect(state.position).toEqual({x: 1, y: 0});
-  });
-  it(`onCompletedAction function with preventDefault should be called with the state and the target on a complete action and dont move the character`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    const onCompletedActionFunction = jest.fn(()=>true);
-    state.tileMap.tiles[0][0].onCompletedAction.move = onCompletedActionFunction;
-    state.advanceState(15);
-    expect(onCompletedActionFunction).toHaveBeenCalledWith(state, state.tileMap.tiles[0][0], {x: 0, y: 0});
-    expect(state.position).toEqual({x: 0, y: 0});
-  });
-  it(`should fail if the manaToSpend is negative or zero`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    expect(() => state.advanceState(0)).toThrowErrorMatchingInlineSnapshot(`"Invalid mana to spend"`);
-    expect(() => state.advanceState(-1)).toThrowErrorMatchingInlineSnapshot(`"Invalid mana to spend"`);
+  it(`should do nothing if the manaToSpend is negative or zero`, () => {
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
+    expect(state.advanceState(0)).toEqual({leftoverMana: 0, spentMana: 0, actionCompleted: false, whoCompleted: new Set()});
+    expect(state.advanceState(-1)).toEqual({leftoverMana: 0, spentMana: 0, actionCompleted: false, whoCompleted: new Set()});
   });
   it(`should refund mana if the cost is less than the already spent mana`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 1), [moveInstructionRight]);
-    state.instructionList.spentActionMana = 15;
-    const remainingMana = state.advanceState(5);
-    expect(remainingMana).toBe(10);
-    expect(state.position).toEqual({x: 1, y: 0});
-  });
-});
-
-describe(`getEntity`, () => {
-  it(`should return the entity if there is one`, () => {
-    const entity = createEntity(1, "Enemy", {});
-    const state: BasicState = createState(createNTileTileMap(1, 1), []);
-    state.tileMap.tiles[0][0].entities.push(entity);
-    expect(state.getEntity(state.tileMap.tiles[0][0])).toBe(entity);
-  });
-  it(`should return undefined if there is no entity`, () => {
-    const state: BasicState = createState(createNTileTileMap(1, 1), []);
-    expect(state.getEntity(state.tileMap.tiles[0][0])).toBeUndefined();
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
+    state.characters[0].actionList.spentActionMana = 15;
+    const {leftoverMana} = state.advanceState(5);
+    expect(leftoverMana).toBe(10);
+    expect(state.characters[0].position).toEqual({i: 0, j: 0, x: 1, y: 0});
   });
 });
 
 describe(`deserializePermanentState`, () => {
-  it(`should deserialize the state, keeping entityId of tiles, mana, familiarityThisLoop, timesCompletedThisLoop, and position from initialState, but the rest from serializedState`, () => {
-    const state: BasicState = createState(createNTileTileMap(2, 2), [moveInstructionRight]);
-    state.mana.current = 50;
+  it(`should deserialize the state, keeping permanentData from serializedState, and the rest from initialState`, () => {
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 2), [moveActionRight]);
 
-    state.position = {x: 1, y: 0};
-
-    const entity = createEntity(1, "Enemy", {});
-    entity.familiarity.move = 1;
-    state.tileMap.tiles[0][0].entities.push(entity);
-
-    state.tileMap.tiles[0][0].familiarity.move = 1;
-    state.tileMap.tiles[0][1].familiarity.move = 10;
-    state.tileMap.tiles[0][0].familiarityThisLoop.move = 5;
-    state.tileMap.tiles[0][1].familiarityThisLoop.move = 50;
-    state.tileMap.tiles[0][0].timesPerformed.move = 1;
-    state.tileMap.tiles[0][1].timesPerformed.move = 10;
-    state.tileMap.tiles[0][0].timesPerformedThisLoop.move = 5;
-    state.tileMap.tiles[0][1].timesPerformedThisLoop.move = 50;
+    state.characters[0].position = {i: 0, j: 0, x: 1, y: 0};
 
     const persistent = {shouldStay: 1};
     state.persistentData = persistent;
@@ -409,46 +250,79 @@ describe(`deserializePermanentState`, () => {
     const serializedState = state.serializePermanentState();
 
 
-    const initialState = createState(createNTileTileMap(2, 2), [moveInstructionLeft]);
-    initialState.mana.current = 100;
+    const initialState = createSingleCharacterState(createSameNTileTileMap(2, 2), [moveActionLeft]);
 
-    initialState.position = {x: 0, y: 1};
-
-    const newEntity = createEntity(1, "Enemy", {});
-    entity.familiarity.move = 2;
-    initialState.tileMap.tiles[0][0].entities.push(newEntity);
-
-    initialState.tileMap.tiles[0][0].familiarity.move = 2;
-    initialState.tileMap.tiles[0][1].familiarity.move = 20;
-    initialState.tileMap.tiles[0][0].familiarityThisLoop.move = 6;
-    initialState.tileMap.tiles[0][1].familiarityThisLoop.move = 60;
-    initialState.tileMap.tiles[0][0].timesPerformed.move = 2;
-    initialState.tileMap.tiles[0][1].timesPerformed.move = 20;
-    initialState.tileMap.tiles[0][0].timesPerformedThisLoop.move = 6;
-    initialState.tileMap.tiles[0][1].timesPerformedThisLoop.move = 60;
+    initialState.characters[0].position = {i: 0, j: 0, x: 0, y: 1};
 
     const initialPersistent = {shouldStay: 2};
     initialState.persistentData = initialPersistent;
     const initialLoop = {shouldChange: 2};
     initialState.loopData = initialLoop;
+
     initialState.deserializePermanentState(serializedState);
 
-    expect(initialState.mana.current).toEqual(100);
-    expect(initialState.position).toEqual({x: 0, y: 1});
-    expect(initialState.tileMap.tiles[0][0].entities[0].familiarity.move).toEqual(1);
-
-    expect(initialState.tileMap.tiles[0][0].familiarity.move).toEqual(1);
-    expect(initialState.tileMap.tiles[0][1].familiarity.move).toEqual(10);
-    expect(initialState.tileMap.tiles[0][0].familiarityThisLoop.move).toEqual(6);
-    expect(initialState.tileMap.tiles[0][1].familiarityThisLoop.move).toEqual(60);
-
-    expect(initialState.tileMap.tiles[0][0].timesPerformed.move).toEqual(1);
-    expect(initialState.tileMap.tiles[0][1].timesPerformed.move).toEqual(10);
-    expect(initialState.tileMap.tiles[0][0].timesPerformedThisLoop.move).toEqual(6);
-    expect(initialState.tileMap.tiles[0][1].timesPerformedThisLoop.move).toEqual(60);
+    expect(initialState.characters[0].position).toEqual({i: 0, j: 0, x: 0, y: 1});
 
     expect(initialState.persistentData).toEqual(persistent);
     expect(initialState.persistentData).not.toBe(persistent);
     expect(initialState.loopData).toBe(initialLoop);
+  });
+});
+
+describe(`resetLoop`, () => {
+  it('should reset the state to its initial state', () => {
+    const initialState: BasicState = createSingleCharacterState(createSameNTileTileMap(1, 1), [moveActionRight]);
+    initialState.characters[0].position = {i: 0, j: 0, x: 1, y: 0};
+    initialState.characters[0].actionList.index = 1;
+    initialState.characters[0].actionList.actions = [moveActionLeft];
+    const serializedState = initialState.serializePermanentState();
+    initialState.resetLoop();
+    expect(initialState.serializePermanentState()).toBe(serializedState);
+    expect(initialState.characters[0].position).toEqual({i: 0, j: 0, x: 0, y: 0});
+    expect(initialState.characters[0].actionList.index).toBe(0);
+    expect(initialState.characters[0].actionList.actions).toEqual([moveActionRight]);
+  });
+});
+
+describe(`getPaths`, () => {
+  it(`should return an empty array if there are no characters`, () => {
+    const state =  new State<AT, AD, TP, TL, TDL, CP, CL, GP, GL>(
+      () => ({
+        tileMap: createSameNTileTileMap(2, 1),
+        characters: [],
+        possibleActions: defaultActionDefinitions,
+        alwaysCallbacks: {
+          onCompleteAction: {
+            move: [({state, action}) => {
+              const oP = state.characters[0].position;
+              const dP = action.data;
+              state.characters[0].position = {i: oP.i, j: oP.j, x: oP.x+dP.x, y: oP.y+dP.y};
+              return false;
+            }]
+          }
+        },
+        persistentData: {},
+        loopData: {},
+      })
+    )
+    expect(state.getPaths()).toEqual([]);
+  });
+  it(`should return an array with a single path if there is a single character`, () => {
+    const state: BasicState = createSingleCharacterState(createSameNTileTileMap(2, 1), [moveActionRight]);
+    expect(state.getPaths()).toEqual([{
+      characterIndex: 0,
+      path: [
+        {
+          index: -1,
+          position: {i: 0, j: 0, x: 0, y: 0},
+          type: undefined,
+        },
+        {
+          index: 0,
+          position: {i: 0, j: 0, x: 1, y: 0},
+          type: "move",
+        }
+      ],
+    }]);
   });
 });

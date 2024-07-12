@@ -1,15 +1,36 @@
 import tilesMap from "./WorldTerrain_Layer_tiledata";
 import entitiesMap from "./WorldElements_Layer_tiledata";
-
-import { EntityWithState, GenericCalc, Instruction, MoveInstruction, OnCompleteFunc, OnPartialFunc, State, TileMap, TileWithState } from "../State";
+import { ActionDefinition, Cell, GenericCalc, OnCompleteFunc, OnPartialFunc, PerActionType, State, Tile, TileDefinition, TileMap } from "..";
 
 export type AT = "move" | "attack" | "interact" | "speak";
-export type FullAT = "move" | AT;
-export type P = {
-  skills: {[key: string]: number};
-  buffs: {[key: string]: number};
+type AD = { x?: number, y?: number };
+type TP = {
+  familiarity: PerActionType<AT, number>;
 };
-export type L = {
+type TL = {
+  stacks?: number;
+  timesPerformedThisLoop: PerActionType<AT, number>;
+  blocked?: boolean;
+  options: {
+    flippedX: boolean,
+    flippedY: boolean,
+    rotate90: boolean,
+  };
+};
+type TDL = {
+  id: number;
+};
+type CP = {};
+type CL = {};
+type GP = {
+  skills: { [key: string]: number };
+  buffs: { [key: string]: number };
+};
+type GL = {
+  mana: {
+    current: number;
+    max: number;
+  }
   stats: {
     body: number;
     spirit: number;
@@ -17,33 +38,44 @@ export type L = {
   };
   spentLevels: number;
   xp: number;
-  inventory: {[key: string]: number};
+  inventory: { [key: string]: number };
 };
-export type iP = {};
-export type iL = {
-  id: number;
-  dId?: (t: number) => number;
-  flags: number;
-  options: EntityOptions;
-  stacks?: number;
-};
+export class SITState extends State<AT, AD, TP, TL, TDL, CP, CL, GP, GL> { };
+type SITTileMap = TileMap<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+type SITCell = Cell<TP, TL>;
+type SITTile = Tile<TP, TL>;
+type SITTileDefinition = TileDefinition<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+type SITGenericCalc = GenericCalc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+type SITOnCompleteFunc = OnCompleteFunc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+type SITOnPartialFunc = OnPartialFunc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITActionDefinition = ActionDefinition<AT, AD>;
 
-const staticFamiliarityGainFunction: (actionType: FullAT) => GenericCalc<AT, P, L, iP, iL> = (actionType) => (state, target, position) => {
-  if ((target.timesPerformedThisLoop[actionType] ?? 0) === 0) {
-    return 20 * 3;
+const staticFamiliarityGainFunction: SITOnCompleteFunc = ({action, target}) => {
+  let toGain = 0;
+  const timesPerformedThisLoop = target.loopData.timesPerformedThisLoop[action.type] ?? 0;
+  if (timesPerformedThisLoop === 0) {
+    toGain =  20 * 3;
+  } else {
+    toGain = 20;
   }
-  return 20;
+  target.persistentData.familiarity[action.type] = (target.persistentData.familiarity[action.type] ?? 0) + toGain;
+  target.loopData.timesPerformedThisLoop[action.type] = timesPerformedThisLoop + 1;
 };
 const randomInRange = (min: number, max: number) =>
   Math.random() * (max - min) + min;
-const randomFamiliarityGainFunction: (actionType: FullAT) => GenericCalc<AT, P, L, iP, iL> = (actionType) => (state, target, position) => {
-  if ((target.timesPerformedThisLoop[actionType] ?? 0) === 0) {
-    return 20 * 3 * randomInRange(0.7, 1.3);
+const randomFamiliarityGainFunction: SITOnCompleteFunc = ({action, target}) => {
+  let toGain = 0;
+  const timesPerformedThisLoop = target.loopData.timesPerformedThisLoop[action.type] ?? 0;
+  if (timesPerformedThisLoop === 0) {
+    toGain =  20 * 3* randomInRange(0.7, 1.3);
+  } else {
+    toGain = 20* randomInRange(0.7, 1.3);
   }
-  return 20 * randomInRange(0.7, 1.3);
+  target.persistentData.familiarity[action.type] = (target.persistentData.familiarity[action.type] ?? 0) + toGain;
+  target.loopData.timesPerformedThisLoop[action.type] = timesPerformedThisLoop + 1;
 };
 
-const skillXpTheresholds = [ 150, 450, 900, 1500, 2250, 3150, 4200, 5400, 6750, 8250, 9900, 11700, 13650, 15750, 18000, 20400, 22950, 25650, 28500, 31500, 34650, 37950, 41400, 45000, 48750, 52650, 56700, 60900, 65250, 69750, 74400, 79200, 84150, 89250, 94500, 99900, 105450, 111150, 117000, 123000, 129150, 135450, 141900, 148500, 155250, 162150, 169200, 176400, 183750, 191250, 198900, 206700, 214650, 222750, 231000, 239400, 247950, 256650, 265500, 274500, ]
+const skillXpTheresholds = [150, 450, 900, 1500, 2250, 3150, 4200, 5400, 6750, 8250, 9900, 11700, 13650, 15750, 18000, 20400, 22950, 25650, 28500, 31500, 34650, 37950, 41400, 45000, 48750, 52650, 56700, 60900, 65250, 69750, 74400, 79200, 84150, 89250, 94500, 99900, 105450, 111150, 117000, 123000, 129150, 135450, 141900, 148500, 155250, 162150, 169200, 176400, 183750, 191250, 198900, 206700, 214650, 222750, 231000, 239400, 247950, 256650, 265500, 274500,]
 
 const skillLevel = (xp: number) => {
   for (let i = 0; i < skillXpTheresholds.length; i++) {
@@ -55,7 +87,7 @@ const skillLevel = (xp: number) => {
 }
 
 // const levelXpTheresholds = [ 150, 350, 600, 900, 1250, 1650, 2100, 2550, 3150, 3750, 4500, 5250, 6000, 6750, 7500, 8250, 9000, 9750, 10500, 11250, 12000, 12750, 13500, 14250, 15000, 15750, 16500, 17250, 18000, 18750, 19500, 20250, 21000, 21750, 22500, 23250, 24000, 24750, 25500, 26250, 27000, 27750, 28500, 29250, 30000, 30750, 31500, 32250, 33000, 33750, 34500, 35250, 36000, 36750, 37500, 38250, 39000, 39750, 40500, 41250, 42000, 42750, 43500, 44250, 45000, ]
-const levelXpTheresholds = [ 150, 450, 900, 1500, 2250, 3150, 4200, 5400, 6750, 8250, 9900, 11700, 13650, 15750, 18000, 20400, 22950, 25650, 28500, 31500, 34650, 37950, 41400, 45000, 48750, 52650, 56700, 60900, 65250, 69750, 74400, 79200, 84150, 89250, 94500, 99900, 105450, 111150, 117000, 123000, 129150, 135450, 141900, 148500, 155250, 162150, 169200, 176400, 183750, 191250, 198900, 206700, 214650, 222750, 231000, 239400, 247950, 256650, 265500, 274500, ]
+const levelXpTheresholds = [150, 450, 900, 1500, 2250, 3150, 4200, 5400, 6750, 8250, 9900, 11700, 13650, 15750, 18000, 20400, 22950, 25650, 28500, 31500, 34650, 37950, 41400, 45000, 48750, 52650, 56700, 60900, 65250, 69750, 74400, 79200, 84150, 89250, 94500, 99900, 105450, 111150, 117000, 123000, 129150, 135450, 141900, 148500, 155250, 162150, 169200, 176400, 183750, 191250, 198900, 206700, 214650, 222750, 231000, 239400, 247950, 256650, 265500, 274500,]
 
 const playerLevel = (xp: number) => {
   for (let i = 0; i < levelXpTheresholds.length; i++) {
@@ -68,7 +100,7 @@ const playerLevel = (xp: number) => {
 
 const handToHandFactor = 0.1;
 const bodyControlFactor = 0.1;
-export const getAttack = (state: State<AT, P, L, iP, iL>) => {
+export const getAttack = (state: SITState) => {
   const weaponAttack = 0;
   const baseAttack = 1;
   const bodyLevel = state.loopData.stats.body;
@@ -82,197 +114,247 @@ export const getAttack = (state: State<AT, P, L, iP, iL>) => {
   )
 }
 
-const formula: (familiarity: number) => number = (familiarity) => {
-  // Level is calculated with: floor(-(19/2)+(sqrt(8*xp+5415))/(2*sqrt(15)))
-  // where xp is familiarity
-  const level = Math.floor(
+export const getFamiliarityLevel: (familiarity: number) => number = (familiarity) => {
+  return Math.floor(
     -9.5 + Math.sqrt(8 * familiarity + 5415) / (2 * Math.sqrt(15))
   );
+}
+
+const getFamiliarityCostDivider: (familiarity: number) => number = (familiarity) => {
+  // Level is calculated with: floor(-(19/2)+(sqrt(8*xp+5415))/(2*sqrt(15)))
+  // where xp is familiarity
+  const level = getFamiliarityLevel(familiarity);
   // Multiplier is calculated with: pow(1+familiarityLvl/20,0.8)
   // where familiarityLvl is the level calculated above
   // console.log("Familiarity: ", familiarity, "Level: ", level, "Multiplier:", Math.pow(1 + level / 20, 0.8));
-  return Math.pow(1 + level / 20, 0.8);
+  return (1 + level / 20) ** 0.8;
 }
 const fCFMemo: {
-  [key: string]: GenericCalc<AT, P, L, iP, iL>
+  [key: string]: SITGenericCalc
 } = {}
-const familiarityCostFormula: (baseCost: number, actionType: FullAT) => GenericCalc<AT, P, L, iP, iL> = (baseCost, actionType) => {
+const familiarityCostFormula: (baseCost: number, actionType: AT) => SITGenericCalc = (baseCost, actionType) => {
   const key = `${baseCost}-${actionType}`
-  return fCFMemo[key] ?? (fCFMemo[key] = (state, target, position) => {
-  const tile = state.tileMap.tiles[position.y][position.x];
-  const tileFamiliarity = tile.familiarity[actionType] ?? 0;
-  const entity = state.getEntity(tile);
-  const entityFamiliarity = entity?.familiarity[actionType] ?? 0;
-  return baseCost / formula(tileFamiliarity + entityFamiliarity);
-})};
+  return fCFMemo[key] ?? (fCFMemo[key] = ({target}) => {
+    const targetFamiliarity = target.persistentData.familiarity[actionType] ?? 0;
+    return baseCost / getFamiliarityCostDivider(targetFamiliarity);
+  })
+};
 
 const fACMemo: {
-  [key: string]: GenericCalc<AT, P, L, iP, iL>
+  [key: string]: SITGenericCalc
 } = {}
-const attackCostFormula: (baseCost: number) => GenericCalc<AT, P, L, iP, iL> = (baseCost) => {
+const attackCostFormula: (baseCost: number) => SITGenericCalc = (baseCost) => {
   const key = `${baseCost}`
-  return fACMemo[key] ?? (fACMemo[key] = (state, target, position) => {
+  return fACMemo[key] ?? (fACMemo[key] = ({ state, target }) => {
     const attack = getAttack(state);
-    const tile = state.tileMap.tiles[position.y][position.x];
-    const tileFamiliarity = tile.familiarity.attack ?? 0;
-    const entity = state.getEntity(tile);
-    const entityFamiliarity = entity?.familiarity.attack ?? 0;
+    const targetFamiliarity = target.persistentData.familiarity.attack ?? 0;
     // console.log("Familiarity: ", tileFamiliarity + entityFamiliarity, "Attack: ", attack, "Tile", target.name);
-    return baseCost / (formula(tileFamiliarity + entityFamiliarity) * attack);
+    return baseCost / (getFamiliarityCostDivider(targetFamiliarity) * attack);
   });
 }
 
-const infinityCostFormula: GenericCalc<AT, P, L, iP, iL> = () => Infinity;
-
-const maxManaFormula: (state: State<AT, P, L, iP, iL>) => number = (state) => {
+const maxManaFormula: (state: SITState) => number = (state) => {
   return 500 + state.loopData.stats.spirit * 200;
 }
 
-const onCompleteReduceStacks: OnCompleteFunc<AT, P, L, iP, iL> = (state, target, position) => {
-  target.loopData.stacks = target.loopData.stacks ?? 1 - 1;
-  return true;
-};
-
-const dependantOnStacksAndFamiliarityFormula: (f: (stacks: number) => number, actionType: FullAT) => GenericCalc<AT, P, L, iP, iL> = (f, actionType) => (state, target, position) => {
+const dependantOnStacksAndFamiliarityFormula: (f: (stacks: number) => number, actionType: AT) => SITGenericCalc = (f, actionType) => ({target}) => {
   const r = f(target.loopData.stacks ?? 1);
-
-  const tile = state.tileMap.tiles[position.y][position.x];
-  const tileFamiliarity = tile.familiarity[actionType] ?? 0;
-  const entity = state.getEntity(tile);
-  const entityFamiliarity = entity?.familiarity[actionType] ?? 0;
-  return r / formula(tileFamiliarity + entityFamiliarity);
+  const targetFamiliarity = target.persistentData.familiarity[actionType] ?? 0;
+  return r / getFamiliarityCostDivider(targetFamiliarity);
 };
 
-const drinkPotion: OnPartialFunc<AT, P, L, iP, iL> = (state) => {
-  if (state.mana.current * 10 < state.mana.max) {
+const move: SITOnCompleteFunc = ({state, action}) => {
+  const oP = state.characters[0].position;
+  const dP = action.data;
+  const newPosition = {i: oP.i, j: oP.j, x: oP.x+(dP.x ?? 0), y: oP.y+(dP.y ?? 0)};
+  const cell = state.getCell(newPosition);
+  if (cell.tiles.some(tile => tile.loopData.blocked === true)) {
+    throw new Error("Can't move there");
+    return
+  }
+  state.characters[0].position = {i: oP.i, j: oP.j, x: oP.x+(dP.x ?? 0), y: oP.y+(dP.y ?? 0)};
+  return false;
+}
+
+const reduceMana: SITOnPartialFunc = ({state, spentMana}) => {
+  state.loopData.mana.current -= spentMana;
+}
+
+const drinkPotion: SITOnPartialFunc = ({ state }) => {
+  if (state.loopData.mana.current * 10 < state.loopData.mana.max) {
     if (state.loopData.inventory["s_potion"] ?? 0 > 0) {
-      state.mana.current += 500;
-      state.mana.current = Math.min(state.mana.current, state.mana.max);
+      state.loopData.mana.current += 500;
+      state.loopData.mana.current = Math.min(state.loopData.mana.current, state.loopData.mana.max);
       state.loopData.inventory["s_potion"] = state.loopData.inventory["s_potion"] - 1;
     }
   }
 };
 
-function toTile(partial: Partial<TileWithState<AT, P, L, iP, iL>>): TileWithState<AT, P, L, iP, iL> {
-  return {
-    name: "",
-    cost: {},
-    familiarityGain: {},
-    onPartialAction: {},
-    onCompletedAction: {},
-    familiarity: {},
-    familiarityThisLoop: {},
-    timesPerformed: {},
-    timesPerformedThisLoop: {},
-    entities: [],
-    loopData: {
-      id: 0,
-      flags: 0,
-      options: {
-        flippedX: false,
-        flippedY: false,
-        rotate90: false,
-      },
-    },
-    persistentData: {},
-    ...partial,
-  };
-}
+// function toTile(partial: Partial<SITTileDefinition>): SITTileDefinition {
+//   return {
+//     name: "",
+//     ...partial,
+//   };
+// }
 
-type TileGenerator = (loopData: iL) => TileWithState<AT, P, L, iP, iL>;
+type TileGenerator = (definitionLoopData: TDL, loopData: TL) => { definition: SITTileDefinition, loopData: TL, persistentData?: TP, disabled?: boolean};
 
-const defaultTile: (id: number, loopData: iL) => TileWithState<AT, P, L, iP, iL> = (id, loopData) => toTile({
-  name: `Unknown tile: ${id}`,
+const defaultTile: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: `Unknown tile: ${definitionLoopData.id}`,
+    definitionLoopData,
+  },
   loopData,
 });
 
-export const crushedGrass: TileGenerator = (loopData) => toTile({
-  name: "Crushed Grass",
-  cost: {move: familiarityCostFormula(40, "move")},
+export const crushedGrass: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Crushed Grass",
+    cost: { move: familiarityCostFormula(40, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const grass: TileGenerator = (loopData) => toTile({
-  name: "Grass",
-  cost: {move: familiarityCostFormula(75, "move")},
+export const grass: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Grass",
+    cost: { move: familiarityCostFormula(75, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const muddyGrass: TileGenerator = (loopData) => toTile({
-  name: "Muddy Grass",
-  cost: {move: familiarityCostFormula(300, "move")},
+export const muddyGrass: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Muddy Grass",
+    cost: { move: familiarityCostFormula(300, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const floodedGrass: TileGenerator = (loopData) => toTile({
-  name: "Flooded Grass",
-  cost: {move: familiarityCostFormula(2000, "move")},
+export const floodedGrass: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Flooded Grass",
+    cost: { move: familiarityCostFormula(2000, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const field: TileGenerator = (loopData) => toTile({
-  name: "Field",
-  cost: {move: familiarityCostFormula(80, "move")},
+export const field: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Field",
+    cost: { move: familiarityCostFormula(80, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const tiles: TileGenerator = (loopData) => toTile({
-  name: "Tiles",
-  cost: {move: familiarityCostFormula(70, "move")},
+export const tiles: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Tiles",
+    cost: { move: familiarityCostFormula(70, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const sewerDrain: TileGenerator = (loopData) => toTile({
-  name: "Sewer drain",
-  cost: {move: familiarityCostFormula(70, "move")},
+export const sewerDrain: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Sewer drain",
+    cost: { move: familiarityCostFormula(70, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const royalCarpet: TileGenerator = (loopData) => toTile({
-  name: "Royal Carpet",
-  cost: {move: familiarityCostFormula(70, "move")},
+export const royalCarpet: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Royal Carpet",
+    cost: { move: familiarityCostFormula(70, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const snow: TileGenerator = (loopData) => toTile({
-  name: "Snow",
-  cost: {move: familiarityCostFormula(100, "move")},
+export const snow: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Snow",
+    cost: { move: familiarityCostFormula(100, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const path: TileGenerator = (loopData) => toTile({
-  name: "Path",
-  cost: {move: familiarityCostFormula(55, "move")},
+export const path: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Path",
+    cost: { move: familiarityCostFormula(55, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const mountainTrail: TileGenerator = (loopData) => toTile({
-  name: "Mountain Trail",
-  cost: {move: familiarityCostFormula(150, "move")},
+export const mountainTrail: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Mountain Trail",
+    cost: { move: familiarityCostFormula(150, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const stream: TileGenerator = (loopData) => toTile({
-  name: "Stream",
-  cost: {move: familiarityCostFormula(100, "move")},
+export const stream: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Stream",
+    cost: { move: familiarityCostFormula(100, "move") },
+    definitionLoopData,
+  },
   loopData,
 });
-export const woods: TileGenerator = (loopData) => toTile({
-  name: "Woods",
-  blocked: true,
-  loopData,
+export const woods: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Woods",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    blocked: true,
+  },
 });
-export const cliff: TileGenerator = (loopData) => toTile({
-  name: "Cliff",
-  blocked: true,
-  loopData,
+export const cliff: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Cliff",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    blocked: true,
+  },
 });
-export const water: TileGenerator = (loopData) => toTile({
-  name: "Water",
-  blocked: true,
-  loopData,
+export const water: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Water",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    blocked: true,
+  },
 });
-export const rock: TileGenerator = (loopData) => toTile({
-  name: "Rock",
-  blocked: true,
-  loopData,
+export const rock: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Rock",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    blocked: true,
+  },
 });
-export const voidTile: TileGenerator = (loopData) => toTile({
-  name: "Void",
-  blocked: true,
-  loopData,
+export const voidTile: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Void",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    blocked: true,
+  },
 });
 
-export const tileMapping: Partial<{[key: string]: TileGenerator}> = {
+export const tileMapping: { [key in number]?: TileGenerator } = {
   5: grass,
   6: grass,
   8: grass,
@@ -362,7 +444,7 @@ export const tileMapping: Partial<{[key: string]: TileGenerator}> = {
   836: mountainTrail,
   876: mountainTrail,
   916: mountainTrail,
-  
+
   154: stream,
   155: stream,
   156: stream,
@@ -487,435 +569,489 @@ export const tileMapping: Partial<{[key: string]: TileGenerator}> = {
   7: voidTile,
 };
 
-function toEntity(partial: Partial<EntityWithState<AT, P, L, iP, iL>>): EntityWithState<AT, P, L, iP, iL> {
-  return {
-    active: true,
-    name: "",
-    cost: {},
-    familiarityGain: {},
-    onPartialAction: {},
-    onCompletedAction: {},
-    familiarity: {},
-    familiarityThisLoop: {},
-    timesPerformed: {},
-    timesPerformedThisLoop: {},
-    loopData: {
-      id: 0,
-      flags: 0,
-      options: {
-        flippedX: false,
-        flippedY: false,
-        rotate90: false,
+const fireflyDefinition: SITTileDefinition = {
+  name: "3ff",
+  // TODO
+  cost: {
+    move: familiarityCostFormula(65, "move"),
+    interact: familiarityCostFormula(100, "interact")
+  },
+  callbacks: {
+    onCompleteAction: {
+      interact: [({state, target}) => {
+        if (target.loopData.stacks ?? 0 > 0) {
+          state.loopData.mana.current += 500 + (50 * skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
+          state.loopData.mana.current = Math.min(state.loopData.mana.current, state.loopData.mana.max);
+          state.loopData.xp += 75 * (1 + skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
+          target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
+        }
+        return true;
+      }]
+    },
+  },
+  definitionLoopData: {
+    id: 0,
+  },
+};
+
+const oneFirefly: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...fireflyDefinition,
+    name: "1ff",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 1,
+  }
+});
+
+const twoFireflies: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...fireflyDefinition,
+    name: "2ff",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 2,
+  }
+});
+
+const threeFireflies: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...fireflyDefinition,
+    name: "3ff",
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 3,
+  }
+});
+
+const oldMan: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Old man",
+    callbacks: {
+      onCompleteAction: {
+        interact: [({state}) => {
+          if (state.loopData.inventory["bat"] ?? 0 > 0) {
+            state.loopData.inventory["s_potion"] = (state.loopData.inventory["s_potion"] ?? 0) + 1;
+            state.loopData.inventory["bat"] = (state.loopData.inventory["bat"] ?? 1) - 1;
+          }
+          return true;
+        }]
       },
     },
-    persistentData: {},
-    ...partial,
-  };
-}
+    cost: {
+      move: familiarityCostFormula(100, "move"),
+      attack: attackCostFormula(350),
+      interact: familiarityCostFormula(200, "interact"),
+      speak: familiarityCostFormula(200, "speak"),
 
-type EntityGenerator = (loopData: iL) => EntityWithState<AT, P, L, iP, iL>;
-
-const defaultEntity: (id: number, loopData: iL) => EntityWithState<AT, P, L, iP, iL> = (id, loopData) => toEntity({
-  name: `Unknown entity: ${id}`,
+    },
+    definitionLoopData,
+  },
   loopData,
 });
 
-const oneFirefly: EntityGenerator = (loopData) => toEntity({
-  name: "3ff",
-  // TODO
-  cost: {
-    move: familiarityCostFormula(65, "move"),
-    interact: familiarityCostFormula(100, "interact")
+const fenceGate: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Fence Gate",
+    callbacks: {
+      onCompleteAction: {
+        attack: [({state, target}) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            state.loopData.xp += 200;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
+    },
+    cost: {
+      move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 35 : Infinity, "move"),
+      attack: attackCostFormula(350)
+    },
+    // TODO
+    definitionLoopData,
   },
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if (target.loopData.stacks ?? 0 > 0) {
-        state.mana.current += 500 + ( 50 * skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
-        state.mana.current = Math.min(state.mana.current, state.mana.max);
-        state.loopData.xp += 75 * ( 1 + skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
-        target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
-      }
-      return true;
-    }
+  loopData,
+});
+
+const fence: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Fence",
+    definitionLoopData,
   },
   loopData: {
     ...loopData,
-    dId: (time) => {
-      console.log("Getting id for 3ff: ", time, " => 200 + (time % 4) = ", 200 + (time % 4),)
-      return 200 + (time % 4)
+    blocked: true,
+  },
+});
+
+const rats: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Rats",
+    cost: { move: familiarityCostFormula(50, "move"), attack: attackCostFormula(100) },
+    callbacks: {
+      onCompleteAction: {
+        attack: [({state, target}) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            // console.log("Gain xp", 150 * ( 1 + 0.1*(skillLevel(state.persistentData.skills["RodentAffinity"] ?? 0))), "affinity xp", state.persistentData.skills["RodentAffinity"] ?? 0, "affinity level", skillLevel(state.persistentData.skills["RodentAffinity"] ?? 0));
+            state.loopData.xp += 150 * (1 + 0.1 * (skillLevel(state.persistentData.skills["RodentAffinity"] ?? 0)));
+            state.loopData.inventory["rodent"] = (state.loopData.inventory["rodent"] ?? 0) + 1;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
     },
-    stacks: 1,
-  },
-});
-
-const twoFireflies: EntityGenerator = (loopData) => toEntity({
-  name: "3ff",
-  // TODO
-  cost: {
-    move: familiarityCostFormula(65, "move"),
-    interact: familiarityCostFormula(100, "interact")
-  },
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if (target.loopData.stacks ?? 0 > 0) {
-        state.mana.current += 500 + ( 50 * skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
-        state.mana.current = Math.min(state.mana.current, state.mana.max);
-        state.loopData.xp += 75 * ( 1 + skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
-        target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
-      }
-      return true;
-    }
-  },
-  loopData: {
-    ...loopData,
-    dId: (time) => {
-      console.log("Getting id for 3ff: ", time, " => 200 + (time % 4) = ", 200 + (time % 4),)
-      return 200 + (time % 4)
+    // TODO
+    definitionLoopData: {
+      ...definitionLoopData,
     },
-    stacks: 2,
   },
-});
-
-const threeFireflies: EntityGenerator = (loopData) => toEntity({
-  name: "3ff",
-  // TODO
-  cost: {
-    move: familiarityCostFormula(65, "move"),
-    interact: familiarityCostFormula(100, "interact")
-  },
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if (target.loopData.stacks ?? 0 > 0) {
-        state.mana.current += 500 + ( 50 * skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
-        state.mana.current = Math.min(state.mana.current, state.mana.max);
-        state.loopData.xp += 75 * ( 1 + skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
-        target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
-      }
-      return true;
-    }
-  },
-  loopData: {
-    ...loopData,
-    dId: (time) => {
-      console.log("Getting id for 3ff: ", time, " => 200 + (time % 4) = ", 200 + (time % 4),)
-      return 200 + (time % 4)
-    },
-    stacks: 3,
-  },
-});
-
-const oldMan: EntityGenerator = (loopData) => toEntity({
-  name: "Old man",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if (state.loopData.inventory["bat"] ?? 0 > 0) {
-        state.loopData.inventory["s_potion"] = (state.loopData.inventory["s_potion"] ?? 0) + 1;
-        state.loopData.inventory["bat"] = (state.loopData.inventory["bat"] ?? 1) - 1;
-      }
-      return true;
-    }
-  },
-  cost: {
-    move: familiarityCostFormula(100, "move"),
-    attack: attackCostFormula(350),
-    interact: familiarityCostFormula(200, "interact"),
-    speak: familiarityCostFormula(200, "speak"),
-
-  },
-  loopData,
-});
-
-const fenceGate: EntityGenerator = (loopData) => toEntity({
-  name: "Fence Gate",
-  onCompletedAction: {
-    attack: (state, target, position) => {
-      const stack = target.loopData.stacks ?? 1;
-      if (stack === 0) {
-        return false
-      } else {
-        state.loopData.xp += 200;
-        target.loopData.stacks = stack - 1;
-        return true;
-      }
-    }
-  },
-  cost: {
-    move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 35 : Infinity, "move"), 
-    attack: attackCostFormula(350)
-  },
-  // TODO
-  loopData,
-});
-
-const fence: EntityGenerator = (loopData) => toEntity({
-  name: "Fence",
-  blocked: true,
-  // TODO
-  loopData,
-});
-
-const rats: EntityGenerator = (loopData) => toEntity({
-  name: "Rats",
-  cost: {move: familiarityCostFormula(50, "move"), attack: attackCostFormula(100)},
-  onCompletedAction: {
-    attack: (state, target, position) => {
-      const stack = target.loopData.stacks ?? 1;
-      if (stack === 0) {
-        return false
-      } else {
-        // console.log("Gain xp", 150 * ( 1 + 0.1*(skillLevel(state.persistentData.skills["RodentAffinity"] ?? 0))), "affinity xp", state.persistentData.skills["RodentAffinity"] ?? 0, "affinity level", skillLevel(state.persistentData.skills["RodentAffinity"] ?? 0));
-        state.loopData.xp += 150 * ( 1 + 0.1*(skillLevel(state.persistentData.skills["RodentAffinity"] ?? 0)));
-        state.loopData.inventory["rodent"] = (state.loopData.inventory["rodent"] ?? 0) + 1;
-        target.loopData.stacks = stack - 1;
-        return true;
-      }
-    }
-  },
-  // TODO
   loopData: {
     ...loopData,
     stacks: 10,
   },
 });
 
-const critter: EntityGenerator = (loopData) => toEntity({
+const critterDefinition: SITTileDefinition = {
   name: "Critter",
   cost: {
-    move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 75 : 200 * stacks, "move"), 
+    move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 75 : 200 * stacks, "move"),
     attack: attackCostFormula(100)
   },
-  onCompletedAction: {
-    attack: (state, target, position) => {
+  callbacks: {
+    onCompleteAction: {
+      attack: [({state, target}) => {
       const stack = target.loopData.stacks ?? 1;
-      if (stack === 0) {
-        return false
-      } else {
-        state.loopData.xp += 150 * ( 1 + 0.1*skillLevel(state.persistentData.skills["CritterAffinity"] ?? 0));
-        state.loopData.inventory["tail"] = (state.loopData.inventory["tail"] ?? 0) + 1;
-        target.loopData.stacks = stack - 1;
-        return true;
-      }
-    }
+        if (stack === 0) {
+          return false
+        } else {
+          state.loopData.xp += 150 * (1 + 0.1 * skillLevel(state.persistentData.skills["CritterAffinity"] ?? 0));
+          state.loopData.inventory["tail"] = (state.loopData.inventory["tail"] ?? 0) + 1;
+          target.loopData.stacks = stack - 1;
+          return true;
+        }
+      }]
+    },
   },
-  // TODO
+  definitionLoopData: {
+    id: 0,
+  },
+};
+
+const critter: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...critterDefinition,
+    name: "Critter",
+    definitionLoopData,
+  },
   loopData: {
     ...loopData,
     stacks: 1,
   },
 });
 
-const doubleCritter: EntityGenerator = (loopData) => toEntity({
-  name: "Double Critter",
-  cost: {
-    move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 75 : 200 * stacks, "move"), 
-    attack: attackCostFormula(100)
+const doubleCritter: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...critterDefinition,
+    name: "Double Critter",
+    definitionLoopData,
   },
-  onCompletedAction: {
-    attack: (state, target, position) => {
-      const stack = target.loopData.stacks ?? 1;
-      if (stack === 0) {
-        return false
-      } else {
-        state.loopData.xp += 1000 * ( 1 + 0.1*skillLevel(state.persistentData.skills["CritterAffinity"] ?? 0));
-        state.loopData.inventory["tail"] = (state.loopData.inventory["tail"] ?? 0) + 1;
-        target.loopData.stacks = stack - 1;
-        return true;
-      }
-    }
-  },
-  // TODO
   loopData: {
     ...loopData,
     stacks: 2,
   },
 });
 
-const cave: EntityGenerator = (loopData) => toEntity({
-  name: "Cave",
-  cost: {
-    move: familiarityCostFormula(100, "move"), 
-    attack: attackCostFormula(300)
+const cave: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Cave",
+    cost: {
+      move: familiarityCostFormula(100, "move"),
+      attack: attackCostFormula(300)
+    },
+    callbacks: {
+      onCompleteAction: {
+        attack: [({state, target}) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            state.loopData.inventory["bat"] = (state.loopData.inventory["bat"] ?? 0) + 1;
+            state.loopData.xp += 150;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
+    },
+    definitionLoopData,
   },
-  onCompletedAction: {
-    attack: (state, target, position) => {
-      const stack = target.loopData.stacks ?? 1;
-      if (stack === 0) {
-        return false
-      } else {
-        state.loopData.inventory["bat"] = (state.loopData.inventory["bat"] ?? 0) + 1;
-        state.loopData.xp += 150;
-        target.loopData.stacks = stack - 1;
-        return true;
-      }
-    }
-  },
-  // TODO
   loopData: {
     ...loopData,
     stacks: 3,
   },
 });
 
-const barrel: EntityGenerator = (loopData) => toEntity({
-  name: "Barrel",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if(target.loopData.stacks ?? 0 > 0) {
-        state.loopData.inventory["s_potion"] = (state.loopData.inventory["s_potion"] ?? 0) + 1;
-      }
-      return true;
-    }
+const barrel: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Barrel",
+    callbacks: {
+      onCompleteAction: {
+        interact: [({state, target}) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack ?? 0 > 0) {
+            state.loopData.inventory["s_potion"] = (state.loopData.inventory["s_potion"] ?? 0) + 1;
+            target.loopData.stacks = stack - 1;
+          }
+          return true;
+        }]
+      },
+    },
+    cost: {
+      move: familiarityCostFormula(100, "move"),
+      interact: familiarityCostFormula(120, "interact"),
+    },
+    // TODO
+    definitionLoopData,
   },
-  cost: {
-    move: familiarityCostFormula(100, "move"),
-    interact: familiarityCostFormula(120, "interact"),
-  },
-  // TODO
   loopData: {
     ...loopData,
     stacks: 1,
   },
 });
 
-const scarecrow: EntityGenerator = (loopData) => toEntity({
+const scarecrowDefinition: SITTileDefinition = {
   name: "Scarecrow",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if(target.loopData.stacks ?? 0 > 0) {
-        state.persistentData.skills["HandToHand"] = (state.persistentData.skills["HandToHand"] ?? 0) + 25;
-        state.loopData.xp += 200;
-        target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
-      }
-      return true;
-    }
-  },
   cost: {
     move: familiarityCostFormula(100, "move"),
     interact: familiarityCostFormula(250, "interact"),
   },
-  // TODO
+  callbacks: {
+    onCompleteAction: {
+      interact: [({state, target}) => {
+        const stack = target.loopData.stacks ?? 1;
+        if (stack ?? 0 > 0) {
+          state.persistentData.skills["HandToHand"] = (state.persistentData.skills["HandToHand"] ?? 0) + 25;
+          state.loopData.xp += 200;
+          target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
+        }
+        return true;
+      }]
+    },
+  },
+  definitionLoopData: {
+    id: 0,
+  },
+};
+
+const flimsyScarecrow: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...scarecrowDefinition,
+    name: "Flimsy Scarecrow",
+    definitionLoopData,
+  },
   loopData: {
     ...loopData,
     stacks: 10,
   },
 });
 
-const carrot: EntityGenerator = (loopData) => toEntity({
-  name: "Carrot",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if(target.loopData.stacks ?? 0 > 0) {
-        state.loopData.inventory["carrot"] = (state.loopData.inventory["carrot"] ?? 0) + 1;
-        target.loopData.stacks = (target.loopData.stacks ?? 1) - 1;
-      }
-      return true;
-    }
+const toughScarecrow: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...scarecrowDefinition,
+    name: "Tough Scarecrow",
+    definitionLoopData,
   },
-  cost: {
-    move: familiarityCostFormula(100, "move"),
-    interact: familiarityCostFormula(250, "interact"),
-  },
-  // TODO
   loopData: {
     ...loopData,
-    stacks: 1,
+    stacks: 100,
   },
 });
 
-const altar: EntityGenerator = (loopData) => toEntity({
-  name: "Altar",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if(state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
-        state.loopData.stats.spirit += 1;
-        state.loopData.spentLevels += 1;
-        state.mana.max = maxManaFormula(state);
-        // console.log("You have increased your spirit level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
-      } else {
-        // console.log("You are already at the maximum level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
-      }
-      return true;
+const carrot: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Carrot",
+    callbacks: {
+      onCompleteAction: {
+        interact: [({state, target}) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack ?? 0 > 0) {
+            state.loopData.inventory["carrot"] = (state.loopData.inventory["carrot"] ?? 0) + 1;
+            target.loopData.stacks = stack - 1;
+          }
+          return true;
+        }]
+      },
     },
-    attack: (state, target, position) => {
-      if(state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
-        state.loopData.stats.body += 1;
-        state.loopData.spentLevels += 1;
-        // console.log("You have increased your body level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
-      }else {
-        // console.log("You are already at the maximum level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
-      }
-      return true;
+    cost: {
+      move: familiarityCostFormula(100, "move"),
+      interact: familiarityCostFormula(250, "interact"),
     },
-    speak: (state, target, position) => {
-      if(state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
-        state.loopData.stats.heart += 1;
-        state.loopData.spentLevels += 1;
-      }
-      return true;
+    // TODO
+    definitionLoopData: {
+      ...definitionLoopData,
+      stacks: 1,
     },
   },
-  cost: {
-    move: familiarityCostFormula(65, "move"),
-    interact: familiarityCostFormula(75, "interact"),
-    attack: attackCostFormula(75),
-    speak: familiarityCostFormula(75, "speak"),
-  },
-  // TODO
   loopData,
 });
 
-const ghost: EntityGenerator = (loopData) => toEntity({
-  name: "Altar",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      state.loopData.stats.spirit += 1;
-      state.mana.max = maxManaFormula(state);
-      return true;
-    }
+const altar: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Altar",
+    callbacks: {
+      onCompleteAction: {
+        interact: [({state}) => {
+          if (state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
+            state.loopData.stats.spirit += 1;
+            state.loopData.spentLevels += 1;
+            state.loopData.mana.max = maxManaFormula(state);
+            // console.log("You have increased your spirit level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
+          } else {
+            // console.log("You are already at the maximum level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
+          }
+          return true;
+        }],
+        attack: [({state}) => {
+          if (state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
+            state.loopData.stats.body += 1;
+            state.loopData.spentLevels += 1;
+            // console.log("You have increased your body level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
+          } else {
+            // console.log("You are already at the maximum level", state.loopData.spentLevels, playerLevel(state.loopData.xp), state.loopData.xp);
+          }
+          return true;
+        }],
+        speak: [({state}) => {
+          if (state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
+            state.loopData.stats.heart += 1;
+            state.loopData.spentLevels += 1;
+          }
+          return true;
+        }],
+      },
+    },
+    cost: {
+      move: familiarityCostFormula(65, "move"),
+      interact: familiarityCostFormula(75, "interact"),
+      attack: attackCostFormula(75),
+      speak: familiarityCostFormula(75, "speak"),
+    },
+    // TODO
+    definitionLoopData,
   },
+  loopData,
+});
+
+const ghost: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Altar",
+    callbacks: {
+      onCompleteAction: {
+        interact: [({state}) => {
+          state.loopData.stats.spirit += 1;
+          state.loopData.mana.max = maxManaFormula(state);
+          return true;
+        }]
+      },
+    },
+    cost: {
+      move: familiarityCostFormula(75, "move"),
+      interact: familiarityCostFormula(75, "interact"),
+      attack: attackCostFormula(75),
+      speak: familiarityCostFormula(75, "speak"),
+    },
+    // TODO
+    definitionLoopData,
+  },
+  loopData,
+});
+
+const bonfire: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Bonfire",
+    callbacks: {
+      onCompleteAction: {
+        interact: [({state}) => {
+          if (state.loopData.inventory["hat"] ?? 0 > 0) {
+            state.persistentData.skills["VillagerAffinity"] = (state.persistentData.skills["VillagerAffinity"] ?? 0) + 115;
+            state.loopData.inventory["hat"] = (state.loopData.inventory["hat"] ?? 1) - 1;
+            state.loopData.xp += 200;
+          } else if (state.loopData.inventory["tooth"] ?? 0 > 0) {
+            state.persistentData.skills["BeastAffinity"] = (state.persistentData.skills["BeastAffinity"] ?? 0) + 165;
+            state.loopData.inventory["tooth"] = (state.loopData.inventory["tooth"] ?? 1) - 1;
+            state.loopData.xp += 200;
+          } else if (state.loopData.inventory["tail"] ?? 0 > 0) {
+            state.persistentData.skills["CritterAffinity"] = (state.persistentData.skills["CritterAffinity"] ?? 0) + 75;
+            state.loopData.inventory["tail"] = (state.loopData.inventory["tail"] ?? 1) - 1;
+            state.loopData.xp += 200;
+          } else if (state.loopData.inventory["rodent"] ?? 0 > 0) {
+            state.persistentData.skills["RodentAffinity"] = (state.persistentData.skills["RodentAffinity"] ?? 0) + 55;
+            state.loopData.inventory["rodent"] = (state.loopData.inventory["rodent"] ?? 1) - 1;
+            state.loopData.xp += 200;
+          }
+          return true;
+        }],
+      },
+    },
+    cost: {
+      move: familiarityCostFormula(100, "move"),
+      interact: familiarityCostFormula(200, "interact")
+    },
+    // TODO
+    definitionLoopData,
+  },
+  loopData,
+});
+
+const hiddenCacheDefinition: SITTileDefinition = {
+  name: "Hidden Cache",
   cost: {
     move: familiarityCostFormula(75, "move"),
-    interact: familiarityCostFormula(75, "interact"),
-    attack: attackCostFormula(75),
-    speak: familiarityCostFormula(75, "speak"),
+    interact: familiarityCostFormula(250, "interact"),
   },
-  // TODO
-  loopData,
-});
+  definitionLoopData: {
+    id: 0,
+  },
+};
 
-const bonfire: EntityGenerator = (loopData) => toEntity({
-  name: "Bonfire",
-  onCompletedAction: {
-    interact: (state, target, position) => {
-      if(state.loopData.inventory["hat"] ?? 0 > 0) {
-        state.persistentData.skills["VillagerAffinity"] = (state.persistentData.skills["VillagerAffinity"] ?? 0) + 115;
-        state.loopData.inventory["hat"] = (state.loopData.inventory["hat"] ?? 1) - 1;
-        state.loopData.xp += 200;
-      } else if (state.loopData.inventory["tooth"] ?? 0 > 0) {
-        state.persistentData.skills["BeastAffinity"] = (state.persistentData.skills["BeastAffinity"] ?? 0) + 165;
-        state.loopData.inventory["tooth"] = (state.loopData.inventory["tooth"] ?? 1) - 1;
-        state.loopData.xp += 200;
-      } else if (state.loopData.inventory["tail"] ?? 0 > 0) {
-        state.persistentData.skills["CritterAffinity"] = (state.persistentData.skills["CritterAffinity"] ?? 0) + 75;
-        state.loopData.inventory["tail"] = (state.loopData.inventory["tail"] ?? 1) - 1;
-        state.loopData.xp += 200;
-      } else if (state.loopData.inventory["rodent"] ?? 0 > 0) {
-        state.persistentData.skills["RodentAffinity"] = (state.persistentData.skills["RodentAffinity"] ?? 0) + 55;
-        state.loopData.inventory["rodent"] = (state.loopData.inventory["rodent"] ?? 1) - 1;
-        state.loopData.xp += 200;
-      }
-      return true;
+const hiddenCache: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    ...hiddenCacheDefinition,
+    name: "Hidden Cache",
+    cost: {
+      move: familiarityCostFormula(75, "move"),
+      interact: familiarityCostFormula(250, "interact"),
     },
+    // TODO
+    definitionLoopData,
   },
-  cost: {
-    move: familiarityCostFormula(100, "move"),
-    interact: familiarityCostFormula(200, "interact")
-  },
-  // TODO
   loopData,
 });
 
-export const entityMapping: Partial<{[key: string]: EntityGenerator}> = {
+const visualEntity: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Visual entity",
+    definitionLoopData,
+  },
+  loopData,
+  disabled: true,
+});
+
+export const entityMapping: { [key in number]?: TileGenerator } = {
   560: oneFirefly,
   520: twoFireflies,
   200: threeFireflies,
@@ -924,7 +1060,8 @@ export const entityMapping: Partial<{[key: string]: EntityGenerator}> = {
   1045: ghost,
   1125: bonfire,
   406: barrel,
-  320: scarecrow,
+  320: flimsyScarecrow,
+  926: toughScarecrow,
   335: carrot,
 
   280: oldMan,
@@ -935,8 +1072,14 @@ export const entityMapping: Partial<{[key: string]: EntityGenerator}> = {
   282: doubleCritter,
   373: cave,
 
-
+  572: hiddenCache,
+  613: hiddenCache,
+  653: hiddenCache,
+  693: hiddenCache,
+  734: hiddenCache,
   367: fence,
+
+  405: visualEntity,
 };
 
 export interface EntityOptions {
@@ -946,42 +1089,53 @@ export interface EntityOptions {
   // rotate180: boolean;
 }
 
-const tileMap: (familiarityGainFunction: (actionType: FullAT) => GenericCalc<AT, P, L, iP, iL>) => TileMap<AT, P, L, iP, iL> = (
-  fGF
-) => {
-  const fullMap: TileWithState<AT, P, L, iP, iL>[][] = [];
+const tileMap: () => SITTileMap = () => {
+  const cells: SITCell[][][][] = [[[]]];
+  const tileDefinitions: { [key: number]: SITTileDefinition } = {};
+  function idToTile(id: number): SITTile {
+    const flags = id >> 8 * 3;
+    id &= 0xFF_FF;
+    const definitionLoopData: TDL = {
+      id,
+      // flags: flags,
+    };
+    const baseLoopData: TL = {
+      timesPerformedThisLoop: {},
+      options: {
+        flippedX: (flags & 16) > 0,
+        flippedY: (flags & 32) > 0,
+        rotate90: (flags & 64) > 0,
+      }
+    }
+
+    const mappedTile = tileMapping[id] ?? entityMapping[id];
+    const {definition, loopData, persistentData, disabled} = mappedTile ? mappedTile(definitionLoopData, baseLoopData) : defaultTile(definitionLoopData, baseLoopData);
+    if (!(id in tileDefinitions)) {
+      tileDefinitions[id] = definition;
+    }
+    return {
+      id,
+      persistentData: {
+        familiarity: {},
+        ...persistentData,
+      },
+      loopData,
+      disabled,
+    };
+  }
   // Read from ./WorldTerrain_Layer_tiledata
-  tilesMap.forEach((mRow, y) => {
-    const row: TileWithState<AT, P, L, iP, iL>[] = [];
-    fullMap.push(row);
+  tilesMap.forEach((mRow, _y) => {
+    const row: SITCell[] = [];
+    cells[0][0].push(row);
     mRow.forEach((id, x) => {
       if (x >= 107) {
         return;
       }
-      const flags = id >> 8*3;
-      id = id & 0xFFFF;
-      const loopData: iL = {
-        id: id,
-        flags: flags,
-        options: {
-          flippedX: (flags & 0b00010000) > 0,
-          flippedY: (flags & 0b00100000) > 0,
-          rotate90: (flags & 0b01000000) > 0,
-        }
-      }
-      // const options: EntityOptions = {
-      //   flippedX: (flags & 0b00010000) > 0,
-      //   flippedY: (flags & 0b00100000) > 0,
-      //   rotate90: (flags & 0b01000000) > 0,
-      // }
-      const mappedTile = tileMapping[id];
-      const tile = mappedTile ? mappedTile(loopData) : defaultTile(id, loopData);
-      // tile.loopData = {
-      //   id: id,
-      //   flags: flags,
-      //   options: options,
-      // }
-      row.push(tile);
+      const tile = idToTile(id);
+      const cell: SITCell = {
+        tiles: [tile],
+      };
+      row.push(cell);
     });
   });
   // Read from ./WorldElements_Layer_tiledata
@@ -990,55 +1144,23 @@ const tileMap: (familiarityGainFunction: (actionType: FullAT) => GenericCalc<AT,
       if (id === 0) {
         return;
       }
-      const flags = id >> 8*3;
-
-      id = id & 0xFFFF;
-      const loopData: iL = {
-        id: id,
-        flags: flags,
-        options: {
-          flippedX: (flags & 0b00010000) > 0,
-          flippedY: (flags & 0b00100000) > 0,
-          rotate90: (flags & 0b01000000) > 0,
-        }
-      }
-
-      const mappedEntity = entityMapping[id];
-      const entity = mappedEntity ? mappedEntity(loopData) : defaultEntity(id, loopData);
-
-      fullMap[y][x].entities.push(entity);
+      const tile = idToTile(id);
+      cells[0][0][y][x].tiles.unshift(tile);
     });
   });
 
 
   return {
-  width: fullMap[0].length,
-  height: fullMap.length,
-  tiles: fullMap,
-  entities: new Map(),
-  defaults: {
-    cost: {},
-    familiarityGain: { move: fGF("move"), attack: fGF("attack"), interact: fGF("interact"), speak: fGF("speak") },
-    onPartialAction: {},
-    onCompletedAction: {},
-  },
-  always: {
-    onPartialAction: {
-      move: [drinkPotion],
-      attack: [drinkPotion],
-      interact: [drinkPotion],
-      speak: [drinkPotion],
-    },
-    onCompletedAction: {},
-  },
-}};
+    cells,
+    tileDefinitions,
+  }
+};
 
-const possibleActions: (Instruction<AT> | MoveInstruction)[] = [
+const possibleActions: (ActionDefinition<AT, AD>)[] = [
   {
     name: "Up",
     type: "move",
-    count: 1,
-    movement:{
+    data: {
       x: 0,
       y: -1,
     },
@@ -1046,8 +1168,7 @@ const possibleActions: (Instruction<AT> | MoveInstruction)[] = [
   {
     name: "Down",
     type: "move",
-    count: 1,
-    movement:{
+    data: {
       x: 0,
       y: 1,
     },
@@ -1055,8 +1176,7 @@ const possibleActions: (Instruction<AT> | MoveInstruction)[] = [
   {
     name: "Left",
     type: "move",
-    count: 1,
-    movement:{
+    data: {
       x: -1,
       y: 0,
     },
@@ -1064,8 +1184,7 @@ const possibleActions: (Instruction<AT> | MoveInstruction)[] = [
   {
     name: "Right",
     type: "move",
-    count: 1,
-    movement:{
+    data: {
       x: 1,
       y: 0,
     },
@@ -1073,17 +1192,17 @@ const possibleActions: (Instruction<AT> | MoveInstruction)[] = [
   {
     name: "Interact",
     type: "interact",
-    count: 1,
+    data: {},
   },
   {
     name: "Attack",
     type: "attack",
-    count: 1,
+    data: {},
   },
   {
     name: "Speak",
     type: "speak",
-    count: 1,
+    data: {},
   },
 ];
 
@@ -1091,20 +1210,43 @@ interface Options {
   randomFamiliarity: boolean;
 }
 
-export const initialState: (options: Options) => State<AT, P, L, iP, iL> = (options) => {
+export const initialState: (options: Options) => SITState = (options) => {
   const { randomFamiliarity } = options;
 
-  return new State<AT, P, L, iP, iL>(
+  return new SITState(
     () => ({
-      tileMap: tileMap(
-        randomFamiliarity
-          ? randomFamiliarityGainFunction
-          : staticFamiliarityGainFunction
-      ),
+      tileMap: tileMap(),
+      characters: [{
+        name: "Player",
+        position: { i: 0, j: 0, x: 61, y: 51 },
+        actionList: {
+          actions: [],
+          index: 0,
+          subIndex: 0,
+          spentActionMana: 0,
+        },
+        loopData: {
+        },
+        persistentData: {
+        },
+      }],
       possibleActions,
-      initialPosition: { x: 61, y: 51 },
-      mana: { current: 500, max: 500 },
+      alwaysCallbacks: {
+        onCompleteAction: {
+          move: [move]
+        },
+      },
+      alwaysGenericCallbacks: {
+        onProgressAction: [reduceMana, drinkPotion],
+        onCompleteAction: [
+          randomFamiliarity ? randomFamiliarityGainFunction : staticFamiliarityGainFunction,
+        ],
+      },
       loopData: {
+        mana: {
+          current: 500,
+          max: 500,
+        },
         stats: {
           body: 0,
           spirit: 0,

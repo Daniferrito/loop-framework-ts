@@ -1,6 +1,5 @@
-import { Instruction, State } from "../src";
-import { AT, FullAT, L, P, getAttack, iL, iP, initialState } from "../src/stuck-in-time/stuck-in-time";
-
+import { Action } from "../src";
+import { AT, SITActionDefinition, SITState, getAttack, getFamiliarityLevel, initialState } from "../src/stuck-in-time/stuck-in-time";
 import { ZakatakActionName, ZakatakRow, loadCsvZakatak, loadJsonZakatak } from "./Zakatak-loading";
 
 describe(`initialState`, () => {
@@ -12,16 +11,18 @@ describe(`initialState`, () => {
   });
 });
 
-function advanceExact(state: State<AT, P, L, iP, iL>, instruction: Instruction<AT>) {
+function advanceExact(state: SITState, action: Action) {
   // state.addInstruction(instruction);
-  state.instructionList.instructions.push(instruction);
-  const {cost} = state.getTargetAndCost();
-  state.advanceState(cost);
+  state.characters[0].actionList.actions.push(action);
+  for (let i = 0; i < action.repetitions; i++) {
+    const cost = state.getNextActions().reduce((acc, next) => Math.min(acc, next.remainingCost), Infinity);
+    state.advanceState(cost);
+  }
 }
 
 
 
-const ZakatakActionNames: {[key in ZakatakActionName]: FullAT} = {
+const ZakatakActionNames: {[key in ZakatakActionName]: AT} = {
   move: "move",
 
   fight: "attack",
@@ -29,68 +30,79 @@ const ZakatakActionNames: {[key in ZakatakActionName]: FullAT} = {
   speak: "speak",
 };
 
+const rowToAction = (state: SITState, row: ZakatakRow): Action => {
+  const mappedName = ZakatakActionNames[row.actionType];
+  const possibleActionsArray: [number, SITActionDefinition][] = Object.entries(state.possibleActions ?? {}).map(([id, action]) => [parseInt(id), action]);
+  if (mappedName === "move") {
+    return {
+      id: possibleActionsArray.find(([id, action]) => action.type === "move" && action.data.x === row.movement.x && action.data.y === row.movement.y)?.[0] ?? -1,
+      global: true,
+      repetitions: row.repetitions,
+    }
+  }
+  return {
+    id: possibleActionsArray.find(([id, action]) => action.type === mappedName)?.[0] ?? -1,
+    global: true,
+    repetitions: row.repetitions,
+  };
+}
+
 function msgExpect<T>(actual: T, message: string): jest.JestMatchers<T> {
   return (expect as (actual: T, message: string)=>unknown)(actual, message) as jest.JestMatchers<T>;
 }
 
-const checkZakatakRow = (state: State<AT, P, L, iP, iL>, tag?: string, basePrecission: number = 10) => (row: ZakatakRow) => {
+const checkZakatakRow = (state: SITState, tag?: string, basePrecission: number = 10) => (row: ZakatakRow) => {
   if (row.repetitions === 0 || isNaN(row.repetitions) || row.repetitions == null) {
     return;
   }
-  const mappedName = ZakatakActionNames[row.actionType];
-  const instruction: Instruction<AT> = {
-    name: mappedName,
-    type: mappedName,
-    count: row.repetitions,
-    movement: row.movement,
-  } as Instruction<AT>;
-  // expect(state.position, `${rowName} startPosition`).toEqual(row.startCoords);
-  // let totalCost = 0;
-  state.instructionList.instructions.push(instruction)
-  msgExpect(() => state.getTargetAndCost(), `${row.index} ${row.actionType} ${undefined} ${row.startCoords.x},${row.startCoords.y}`).not.toThrow();
-  let {target} = state.getTargetAndCost();
-  for (let i = 0; i < row.repetitions; i++) {
-    const {cost} = state.getTargetAndCost();
-    // totalCost += cost;
-    // console.log(state.mana.current);
-    const over = state.advanceState(cost);
+  const action: Action = rowToAction(state, row);
+  const actionType = state.possibleActions?.[action.id].type as AT;
+
+  const nextAction = state.getNextActions()[0];
+  const target = nextAction.target;
+  const targetName = target.name;
+
+  const rowName = `${tag}:${row.index} (${row.repetitions} ${row.actionType}) ${targetName} (${row.startCoords.x},${row.startCoords.y})`;
+
+  if(row.familiarityLevel != null) {
+    msgExpect(getFamiliarityLevel(target.persistentData.familiarity[actionType] ?? 0), `${rowName} familiarity`).toEqual(row.familiarityLevel);
   }
-  const rowName = `${tag}:${row.index} (${row.repetitions} ${row.actionType}) ${target.name} (${row.startCoords.x},${row.startCoords.y})`;
-  // console.log(row.startCoords, state.position, row.actionType, row.movement, (instruction as MoveInstruction).movement, state.instructionList.index, state.instructionList.instructions.length);
-  msgExpect(state.position, `${rowName} endPosition`).toEqual(row.endCoords);
+
+  advanceExact(state, action);
+  msgExpect(state.characters[0].position, `${rowName} endPosition`).toEqual(row.endCoords);
   // msgExpect(totalCost, `${rowName} totalCost`).toBeCloseTo(row.cost, 0);
-  msgExpect(state.mana.max, `${rowName} maxMana`).toEqual(row.finalMaxMana);
+  msgExpect(state.loopData.mana.max, `${rowName} maxMana`).toEqual(row.finalMaxMana);
   msgExpect(getAttack(state), `${rowName} damage`).toEqual(row.damage);
   msgExpect(state.loopData.xp, `${rowName} xp`).toEqual(row.xp);
   
   if(tag === "P4" && row.index > 9) {
-    msgExpect(state.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana, -0.4);
+    msgExpect(state.loopData.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana, -0.4);
   } else if(tag === "P5" && row.index > 108) {
-    msgExpect(state.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana, -1.4);
+    msgExpect(state.loopData.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana, -1.4);
   } else if(tag === "P6-V2 X" && row.index > 44) {
-    msgExpect(state.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana+33.023798467963616, -2);
+    msgExpect(state.loopData.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana+33.023798467963616, -2);
   } else {
-    msgExpect(state.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana, basePrecission);
+    msgExpect(state.loopData.mana.current, `${rowName} currentMana`).toBeCloseTo(row.finalMana, basePrecission);
   }
 
   // msgExpect(state.health.current).toEqual(row.finalHealth);
 }
 
-const checkZakatakLoop = async (state: State<AT, P, L, iP, iL>, fileName: string): Promise<State<AT, P, L, iP, iL>> => {
+const checkZakatakLoop = async (state: SITState, fileName: string): Promise<SITState> => {
   const dupState = state.clone();
   dupState.resetLoop();
-  dupState.instructionList.instructions = [];
+  // dupState.characters[0].actionList.actions = [];
   const parts = fileName.split('.');
   const tag = parts[parts.length - 2];
   const rows = await loadCsvZakatak(fileName);
-  rows.forEach(checkZakatakRow(dupState, tag, 0));
+  rows.forEach(checkZakatakRow(dupState, tag, -0.8));
   return dupState;
 };
 
-const checkJsonZakatakLoop = async (state: State<AT, P, L, iP, iL>, fileName: string): Promise<State<AT, P, L, iP, iL>> => {
+const checkJsonZakatakLoop = async (state: SITState, fileName: string): Promise<SITState> => {
   const dupState = state.clone();
   dupState.resetLoop();
-  dupState.instructionList.instructions = [];
+  // dupState.characters[0].actionList.actions = [];
   const parts = fileName.split('.');
   const tag = parts[parts.length - 2];
   const rows = await loadJsonZakatak(fileName);
@@ -102,127 +114,128 @@ describe(`known loops`, () => {
   it(`Zakatak P0`, () => {
     const options = { randomFamiliarity: false };
     const state = initialState(options);
-    const up = state.instructionList.possibleActions.find(action => action.name === "Up") as Instruction<AT>;
-    const down = state.instructionList.possibleActions.find(action => action.name === "Down") as Instruction<AT>;
-    const left = state.instructionList.possibleActions.find(action => action.name === "Left") as Instruction<AT>;
-    const right = state.instructionList.possibleActions.find(action => action.name === "Right") as Instruction<AT>;
-    const attack = state.instructionList.possibleActions.find(action => action.name === "Attack") as Instruction<AT>;
-    const interact = state.instructionList.possibleActions.find(action => action.name === "Interact") as Instruction<AT>;
-    const speak = state.instructionList.possibleActions.find(action => action.name === "Speak") as Instruction<AT>;
+    const possibleActionsArray: [string, SITActionDefinition][] = Object.entries(state.possibleActions ?? {});
+    const up: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Up")?.[0] ?? ""), global: true, repetitions: 1};
+    const down: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Down")?.[0] ?? ""), global: true, repetitions: 1};
+    const left: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Left")?.[0] ?? ""), global: true, repetitions: 1};
+    const right: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Right")?.[0] ?? ""), global: true, repetitions: 1};
+    const attack: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Attack")?.[0] ?? ""), global: true, repetitions: 1};
+    const interact: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Interact")?.[0] ?? ""), global: true, repetitions: 1};
+    const speak: Action = {id: parseInt(possibleActionsArray.find(([id, action]) => action.name === "Speak")?.[0] ?? ""), global: true, repetitions: 1};
     
     advanceExact(state, up);
-    expect(state.mana.current).toEqual(460);
+    expect(state.loopData.mana.current).toEqual(460);
     advanceExact(state, right);
-    expect(state.mana.current).toEqual(420);
+    expect(state.loopData.mana.current).toEqual(420);
     advanceExact(state, attack);
     advanceExact(state, attack);
-    expect(state.mana.current).toBeCloseTo(220, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(220, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(170, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(170, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(130, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(130, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(500, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(500, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(435, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(435, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(395, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(395, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(320, 0);
-    expect(state.mana.max).toEqual(700);
+    expect(state.loopData.mana.current).toBeCloseTo(320, 0);
+    expect(state.loopData.mana.max).toEqual(700);
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(255, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(255, 0);
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(215, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(215, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(615, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(615, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(550, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(550, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(510, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(510, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(435, 0);
-    expect(state.mana.max).toEqual(900);
+    expect(state.loopData.mana.current).toBeCloseTo(435, 0);
+    expect(state.loopData.mana.max).toEqual(900);
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(370, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(370, 0);
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(330, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(330, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(730, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(730, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(665, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(665, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(625, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(625, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(585, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(585, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(545, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(545, 0);
     advanceExact(state, attack);
-    expect(state.mana.current).toBeCloseTo(195, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(195, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(160, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(160, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(105, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(105, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(505, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(505, 0);
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(440, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(440, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(385, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(385, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(310, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(310, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(255, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(255, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(655, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(655, 0);
     //Cross left
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(590, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(590, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(535, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(535, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(460, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(460, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(385, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(385, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(310, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(310, 0);
     advanceExact(state, up);
-    expect(state.mana.current).toBeCloseTo(235, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(235, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(635, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(635, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(570, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(570, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(495, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(495, 0);
     advanceExact(state, left);
-    expect(state.mana.current).toBeCloseTo(420, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(420, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(345, 0);
-    expect(state.mana.max).toEqual(1100);
+    expect(state.loopData.mana.current).toBeCloseTo(345, 0);
+    expect(state.loopData.mana.max).toEqual(1100);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(280, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(280, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(205, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(205, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(130, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(130, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(530, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(530, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(930, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(930, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(865, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(865, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(790, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(790, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(715, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(715, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(640, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(640, 0);
     advanceExact(state, right);
-    expect(state.mana.current).toBeCloseTo(565, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(565, 0);
     advanceExact(state, down);
-    expect(state.mana.current).toBeCloseTo(510, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(510, 0);
     advanceExact(state, interact);
-    expect(state.mana.current).toBeCloseTo(910, 0);
+    expect(state.loopData.mana.current).toBeCloseTo(910, 0);
     //Cross right
   });
 

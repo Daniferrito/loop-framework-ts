@@ -24,6 +24,7 @@ export interface ZakatakRow {
   finalMaxMana: number;
   finalHealth: number;
 
+  familiarityLevel: number;
   damage: number;
   xp: number;
 }
@@ -48,14 +49,20 @@ export async function loadCsvZakatak(name: string) {
         index: parseInt(record[0]),
 
         startCoords: {
+          i: 0,
+          j: 0,
           x: parseInt(record[11]) + 61,
           y: -parseInt(record[12]) + 51,
         },
         endCoords: {
+          i: 0,
+          j: 0,
           x: parseInt(record[17]) + 61,
           y: -parseInt(record[18]) + 51,
         },
         movement: {
+          i: 0,
+          j: 0,
           x: parseInt(record[15]),
           y: -parseInt(record[16]),
         },
@@ -67,6 +74,7 @@ export async function loadCsvZakatak(name: string) {
         finalMaxMana: parseInt(record[42].replace(/,/g, '')),
         finalHealth: parseFloat(record[43].replace(/,/g, '')),
 
+        familiarityLevel: parseInt(record[10]),
         damage: parseFloat(record[77].replace(/,/g, '')),
         xp: parseInt(record[116].replace(/-/g, '0')),
       });
@@ -101,6 +109,7 @@ export function processWorkSheet(worksheet: ExcelJS.Worksheet): ZakatakRow[] {
   const finalManaCol = headersRowCells.findIndex(cell => cell === 'mana');
   const finalMaxManaCol = headersRowCells.findIndex(cell => cell?.toString().toLowerCase() === 'max');
   const finalHealthCol = headersRowCells.findIndex(cell => cell === 'hp');
+  const familiarityLevelCol = headersRowCells.findIndex(cell => cell === 'fam.');
   const damageCol = headersRowCells.findIndex(cell => cell === 'dmg');
   const xpCol = headersRowCells.findIndex(cell => cell === 'xp');
 
@@ -118,14 +127,20 @@ export function processWorkSheet(worksheet: ExcelJS.Worksheet): ZakatakRow[] {
       index: row.getCell(1).value as number,
 
       startCoords: {
+        i: 0,
+        j: 0,
         x: row.getCell(startCoordsCol).value as number + 61,
         y: -(row.getCell(startCoordsCol + 1).value as number)  + 51,
       },
       endCoords: {
+        i: 0,
+        j: 0,
         x: row.getCell(endCoordsCol).value as number + 61,
         y: -(row.getCell(endCoordsCol + 1).value as number) + 51,
       },
       movement: {
+        i: 0,
+        j: 0,
         x: row.getCell(movementCol).value as number,
         y: -(row.getCell(movementCol + 1).value as number),
       },
@@ -137,6 +152,7 @@ export function processWorkSheet(worksheet: ExcelJS.Worksheet): ZakatakRow[] {
       finalMaxMana: row.getCell(finalMaxManaCol).value as number,
       finalHealth: row.getCell(finalHealthCol).value as number,
 
+      familiarityLevel: row.getCell(familiarityLevelCol).value as number,
       damage: row.getCell(damageCol).value as number,
       xp: row.getCell(xpCol).value as number,
     });

@@ -1,382 +1,367 @@
-// export type ActionTypes<AT extends string> = "move" | AT;
-export type PerActionType<ActionType extends string, T> = Partial<{ [key in "move" | ActionType]: T }>;
+import { ActionDefinition, FullAction } from "./Action";
+import { CostType, PerActionCallbacksType, GenericCallbacksType } from "./Callbacks";
+import { Character } from "./Character";
+import { Coordinates, FullTile, TileMap } from "./TileMap";
+import { LoopFrameworkError, LoopFrameworkErrorCode } from "./Errors";
 
-export interface Instruction<ActionType extends "move" | string> {
-  name: string;
-  type: "move" | ActionType;
-  count: number;
+export interface StateAdvanceResponse {
+  spentMana: number;
+  leftoverMana: number;
+  actionCompleted: boolean;
+  whoCompleted: Set<number>;
 }
 
-export interface MoveInstruction extends Instruction<"move"> {
-  type: "move";
-  movement: {x: number, y: number};
+export interface StateData<ActionType extends string, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData> {
+  tileMap: TileMap<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  characters: Character<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>[];
+  possibleActions?: { [id: number]: ActionDefinition<ActionType, ActionData> };
+
+  cost?: CostType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  callbacks?: PerActionCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  alwaysCallbacks?: PerActionCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  genericCallbacks?: GenericCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  alwaysGenericCallbacks?: GenericCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+
+  onDataLoad?: (state: State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>) => void;
+  onLoopEnd?: (state: State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>) => void;
+
+  persistentData: GlobalPersistentData,
+  loopData: GlobalLoopData,
 }
 
-export interface InstructionList<ActionType extends string> {
-  instructions: Instruction<ActionType>[];
-  possibleActions: Instruction<ActionType>[];
-  index: number;
-  subIndex: number;
-  spentActionMana: number;
-}
+export type StateInitializer<ActionType extends string, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData> = () => StateData<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
 
+export class State<ActionType extends string, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData> implements StateData<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData> {
+  initializer: StateInitializer<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>
 
-export type GenericCalc<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> = (state: State<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, targetPos: Coordinates) => number;
-export type OnPartialFunc<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> = (state: State<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, spentMana: number, targetPos: Coordinates) => void;
-export type OnCompleteFunc<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> = (state: State<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, targetPos: Coordinates) => boolean;
+  tileMap: TileMap<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  characters: Character<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>[];
+  possibleActions?: { [id: number]: ActionDefinition<ActionType, ActionData> };
 
-export interface EntityOrTile<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> {
-  name: string;
+  cost?: CostType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  callbacks?: PerActionCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  alwaysCallbacks?: PerActionCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  genericCallbacks?: GenericCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
+  alwaysGenericCallbacks?: GenericCallbacksType<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>;
 
-  cost: PerActionType<ActionType, GenericCalc<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-  familiarityGain: PerActionType<ActionType, GenericCalc<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-  onPartialAction: PerActionType<ActionType, OnPartialFunc<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-  onCompletedAction: PerActionType<ActionType, OnCompleteFunc<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-  blocked?: boolean;
+  onDataLoad?: (state: State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>) => void;
+  onLoopEnd?: (state: State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>) => void;
 
-  loopData: IndLoopData;
-}
+  persistentData: GlobalPersistentData;
+  loopData: GlobalLoopData;
 
-export interface Entity<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> extends EntityOrTile<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData> {
-  active: boolean;
-}
-
-export interface Tile<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> extends EntityOrTile<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData> {
-  entities: Entity<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>[];
-}
-
-export interface PersistentSingleState<ActionType extends string, IndPersistentData> {
-  timesPerformed: PerActionType<ActionType, number>;
-  familiarity: PerActionType<ActionType, number>;
-  persistentData: IndPersistentData;
-}
-
-export interface PersistentSingleStateWithPersistentEntities<ActionType extends string, IndPersistentData> extends PersistentSingleState<ActionType, IndPersistentData> {
-  entities: PersistentSingleState<ActionType, IndPersistentData>[];
-}
-
-export interface LoopSingleState<AT extends string> {
-  timesPerformedThisLoop: PerActionType<AT, number>;
-  familiarityThisLoop: PerActionType<AT, number>;
-}
-
-export interface SingleState<AT extends string, IndPersistentData> extends PersistentSingleState<AT, IndPersistentData>, LoopSingleState<AT> { }
-
-export interface EntityOrTileWithState<AT extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> extends EntityOrTile<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>, SingleState<AT, IndPersistentData> { }
-export interface TileWithState<AT extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> extends Tile<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>, SingleState<AT, IndPersistentData> {
-  entities: EntityWithState<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>[];
-}
-export interface EntityWithState<AT extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> extends Entity<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>, SingleState<AT, IndPersistentData> { }
-
-export interface TileMap<AT extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> {
-  width: number;
-  height: number;
-  tiles: TileWithState<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>[][];
-
-  defaults: {
-    cost: PerActionType<AT, GenericCalc<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-    familiarityGain: PerActionType<AT, GenericCalc<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-    onPartialAction: PerActionType<AT, OnPartialFunc<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-    onCompletedAction: PerActionType<AT, OnCompleteFunc<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>>;
-  };
-  always: {
-    onPartialAction: PerActionType<AT, OnPartialFunc<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>[]>;
-    onCompletedAction: PerActionType<AT, OnCompleteFunc<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>[]>;
-  };
-}
-
-export interface Coordinates {
-  x: number;
-  y: number;
-}
-
-export type StateInitializer<AT extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> = () => { 
-  tileMap: TileMap<AT, PersistentData, LoopData, IndPersistentData, IndLoopData>, 
-  possibleActions: Instruction<AT>[],
-  initialPosition: Coordinates, 
-  mana: { max: number, current: number }, 
-  persistentData: PersistentData, 
-  loopData: LoopData 
-};
-
-export class State<ActionType extends string, PersistentData, LoopData, IndPersistentData, IndLoopData> {
-  initializer: StateInitializer<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>
-
-  tileMap: TileMap<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>;
-  instructionList: InstructionList<ActionType>;
-
-  initialPosition: Coordinates;
-  position: Coordinates;
-  mana: { max: number, current: number };
-  loopCount: number;
-
-  persistentData: PersistentData;
-  loopData: LoopData;
-
-  constructor(
-    initializer: StateInitializer<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>
-  ) {
+  constructor(initializer: StateInitializer<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>) {
     this.initializer = initializer;
-    this.tileMap = {} as TileMap<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>;
-    this.instructionList = {} as InstructionList<ActionType>;
-    this.initialPosition = { x: 0, y: 0 };
-    this.position = { x: 0, y: 0 };
-    this.mana = { max: 0, current: 0 };
-    this.loopCount = 0;
-    this.persistentData = {} as PersistentData;
-    this.loopData = {} as LoopData;
+    this.tileMap = null as any;
+    this.characters = null as any;
+    this.persistentData = null as any;
+    this.loopData = null as any;
     this.initialize();
   }
 
   initialize() {
-    const { tileMap, initialPosition, mana, persistentData, loopData, possibleActions } = this.initializer();
+    
+    const { tileMap, characters, possibleActions, cost, callbacks, alwaysCallbacks, genericCallbacks, alwaysGenericCallbacks, onDataLoad, onLoopEnd, persistentData, loopData } = this.initializer();
     this.tileMap = tileMap;
-    this.instructionList = {
-      instructions: [],
-      possibleActions,
-      index: 0,
-      subIndex: 0,
-      spentActionMana: 0
+    this.characters = characters;
+    this.possibleActions = possibleActions;
 
-    };
-    this.initialPosition = initialPosition;
-    this.position = initialPosition;
+    this.cost = cost;
+    this.callbacks = callbacks;
+    this.alwaysCallbacks = alwaysCallbacks;
+    this.genericCallbacks = genericCallbacks
+    this.alwaysGenericCallbacks = alwaysGenericCallbacks;
 
-    this.mana = mana;
-    this.loopCount = 0;
+    this.onDataLoad = onDataLoad;
+    this.onLoopEnd = onLoopEnd;
 
     this.persistentData = persistentData;
     this.loopData = loopData;
   }
 
-  advanceState(manaToSpend: number): number {
+  advanceState(manaToSpend: number): StateAdvanceResponse {
     if (manaToSpend <= 0) {
-      throw new Error("Invalid mana to spend");
+      return { spentMana: 0, leftoverMana: 0, actionCompleted: false, whoCompleted: new Set() };
     }
-    const instruction = this.instructionList.instructions[this.instructionList.index];
+    let spentMana = 0;
+    let actionCompleted = false;
+    const whoCompleted: Set<number> = new Set();
+    try{
+      while (spentMana < manaToSpend) {
+        // Get the next actions for each character
+        const nextActions: {
+          action: FullAction<ActionType, ActionData> | undefined,
+          characterIndex: number,
+          character: Character<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>,
+          target: FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>,
+          targetPos: Coordinates,
+          allTiles: FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>[],
+          cost: number,
+          remainingCost: number,
+        }[] = this.getNextActions();
+        const leastManaToComplete = nextActions.reduce((acc, next) => Math.min(acc, next.remainingCost), Infinity);
+        const manaToSpendThisIteration = Math.min(manaToSpend - spentMana, leastManaToComplete);
 
-    const { target, cost: actionCost } = this.getTargetAndCost();
+        // Advance the loop by manaToSpendThisIteration
+        nextActions.forEach(({ action, characterIndex, character, target, targetPos, allTiles, cost }) => {
+          if (action == null) {
+            // TODO define error
+            throw {
+              name: 'NoActionDefined',
+              message: `No action defined for the character ${character.name} at action index ${character.actionList.index}`,
+              code: LoopFrameworkErrorCode.NoAction,
+            } as LoopFrameworkError;
+          }
 
-    if (actionCost === Infinity) {
-      throw new Error("Invalid action cost");
-    }
-
-
-    const remainingManaCost = actionCost - this.instructionList.spentActionMana;
-    const actuallySpentMana = Math.min(manaToSpend, remainingManaCost);
-    const overSpentMana = Math.max(manaToSpend - remainingManaCost, 0);
-    this.instructionList.spentActionMana += actuallySpentMana;
-    this.mana.current -= actuallySpentMana;
-
-    const originalPosition = { ...this.position };
-
-    const onPartialAction = target.onPartialAction[instruction.type] || this.tileMap.defaults.onPartialAction[instruction.type];
-    if (onPartialAction) {
-      onPartialAction(this, target, actuallySpentMana, this.position);
-    }
-
-    const alwaysOnPartialActionList = this.tileMap.always.onPartialAction[instruction.type];
-    if (alwaysOnPartialActionList) {
-      for (const alwaysOnPartialAction of alwaysOnPartialActionList){
-        alwaysOnPartialAction(this, target, actuallySpentMana, this.position);
-      }
-    }
-
-    if (this.instructionList.spentActionMana === actionCost) {
-      this.instructionList.spentActionMana = 0;
-      //Completed the action
-
-      const onCompletedAction = target.onCompletedAction[instruction.type] || this.tileMap.defaults.onCompletedAction[instruction.type];
-      let preventDefault = false;
-      if (onCompletedAction) {
-        preventDefault ||= onCompletedAction(this, target, this.position);
-      }
-
-      const alwaysOnCompletedActionList = this.tileMap.always.onCompletedAction[instruction.type];
-      if (alwaysOnCompletedActionList) {
-        for (const alwaysOnCompletedAction of alwaysOnCompletedActionList){
-          alwaysOnCompletedAction(this, target, this.position);
-        }
-      }
-
-      // Get the familiarity gain function before moving
-      const familiarityGainFunc = target.familiarityGain[instruction.type] || this.tileMap.defaults.familiarityGain[instruction.type];
-      if (!familiarityGainFunc) {
-        throw new Error(`No familiarity gain function found for ${instruction.type} on ${target.name} or defaults`);
-      }
-
-      if (!preventDefault) {
-        this.performAction(instruction, target);
-      }
-
-      this.handleCounters(instruction, target, originalPosition, familiarityGainFunc);
-      this.instructionList.subIndex++;
-      if (this.instructionList.subIndex >= instruction.count) {
-        this.instructionList.subIndex = 0;
-        this.instructionList.index++;
-      }
-    }
-    return overSpentMana;
-
-  }
-
-  getTargetAndCost(): { target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, cost: number } {
-
-    if (this.instructionList.index >= this.instructionList.instructions.length) {
-      throw new Error("No more actions to perform");
-    }
-
-    const instruction = this.instructionList.instructions[this.instructionList.index];
-    let target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData> | undefined = undefined;
-    let actionCost: number | undefined = undefined;
-
-    const tile = this.tileMap.tiles[this.position.y][this.position.x];
-    const entity = this.getEntity(tile);
-    const entityActionCost = entity ? entity.cost[instruction.type] || this.tileMap.defaults.cost[instruction.type] : undefined;
-    const tileActionCost = tile.cost[instruction.type] || this.tileMap.defaults.cost[instruction.type];
-    if (entity && entityActionCost) {
-      target = entity;
-      actionCost = entityActionCost(this, entity, this.position);
-    } else if (tileActionCost) {
-      target = tile;
-      actionCost = tileActionCost(this, tile, this.position);
-    } else {
-      throw new Error(`No action cost found for ${instruction.type} on entity ${entity?.name}, tile ${tile.name}, or defaults, on position ${this.position.x}, ${this.position.y}`);
-    }
-    // TODO: check if action is possible by looking at the tile properties and cost
-
-    return { target: target, cost: actionCost };
-  }
-
-  performAction(instruction: Instruction<ActionType>, target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>): void {
-    // Perform the action
-    if (isMoveInstruction(instruction)) {
-      const newPosition = this.tileMap.tiles[this.position.y + instruction.movement.y]?.[this.position.x + instruction.movement.x];
-      if (newPosition === undefined) {
-        throw new Error("Invalid move (outside of map)");
-      } else if (newPosition.blocked === true) {
-        throw new Error("Invalid move");
-      }
-      this.position = {
-        x: this.position.x + instruction.movement.x,
-        y: this.position.y + instruction.movement.y
-      };
-    }
-  }
-
-  handleCounters(instruction: Instruction<ActionType>, target: EntityOrTileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>, position: Coordinates, familiarityGainFunc: GenericCalc<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>): void {
-    const gainedFamiliarity = familiarityGainFunc(this, target, position);
-    target.familiarity[instruction.type] = (target.familiarity[instruction.type] || 0) + gainedFamiliarity;
-    target.familiarityThisLoop[instruction.type] = (target.familiarityThisLoop[instruction.type] || 0) + gainedFamiliarity;
-    // Increase counters
-    target.timesPerformed[instruction.type] = (target.timesPerformed[instruction.type] || 0) + 1;
-    target.timesPerformedThisLoop[instruction.type] = (target.timesPerformedThisLoop[instruction.type] || 0) + 1;
-  }
-
-  getEntity(tile: TileWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>): EntityWithState<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData> | undefined {
-    for (const entity of tile.entities) {
-      if (entity.active) {
-        return entity;
-      }
-    }
-    return undefined;
-  }
-
-  addInstruction(instruction: Instruction<ActionType>, index?: number): void {
-    const toAdd = { ...instruction}
-    if (index === undefined) {
-      if (this.instructionList.instructions.length > 0 && this.instructionList.instructions[this.instructionList.instructions.length - 1].name === toAdd.name) {
-        this.instructionList.instructions[this.instructionList.instructions.length - 1].count += toAdd.count;
-      }else{
-        this.instructionList.instructions.push(toAdd);
-      }
-    } else {
-      this.instructionList.instructions.splice(index, 0, toAdd);
-    }
-  }
-
-  getPath(): {x: number, y: number, index: number, type: "move" | ActionType}[] {
-    // Make a copy of the state
-    const state = this.clone();
-    const path: {x: number, y: number, index: number, type: "move" | ActionType}[] = [];
-    try {
-      while (state.instructionList.index < state.instructionList.instructions.length) {
-        // while (state.instructionList.subIndex < state.instructionList.instructions[state.instructionList.index].count) {
-          const instruction = state.instructionList.instructions[state.instructionList.index];
-          const {target, cost} = state.getTargetAndCost()
-          state.advanceState(cost);
-          path.push({x: state.position.x, y: state.position.y, index: state.instructionList.index, type: instruction.type});
-        // }
+          const fnInput = { state: this, action, character, target, targetPos };
+          const isStartingAction = character.actionList.spentActionMana === 0; 
+          if (isStartingAction) {
+            target.callbacks?.onStartAction?.[action.type]?.find(fn => fn(fnInput))
+            || character.callbacks?.onStartAction?.[action.type]?.find(fn => fn(fnInput))
+            || this.callbacks?.onStartAction?.[action.type]?.find(fn => fn(fnInput))
+            || target.genericCallbacks?.onStartAction?.find(fn => fn(fnInput))
+            || character.genericCallbacks?.onStartAction?.find(fn => fn(fnInput))
+            || this.genericCallbacks?.onStartAction?.find(fn => fn(fnInput));
+  
+            allTiles.forEach(tile => {
+              tile.alwaysCallbacks?.onStartAction?.[action.type]?.forEach(fn => fn(fnInput));
+              tile.alwaysGenericCallbacks?.onStartAction?.forEach(fn => fn(fnInput));
+            });
+            character.alwaysCallbacks?.onStartAction?.[action.type]?.forEach(fn => fn(fnInput));
+            character.alwaysGenericCallbacks?.onStartAction?.forEach(fn => fn(fnInput));
+            this.alwaysCallbacks?.onStartAction?.[action.type]?.forEach(fn => fn(fnInput));
+            this.alwaysGenericCallbacks?.onStartAction?.forEach(fn => fn(fnInput));
+          }
+          
+          character.actionList.spentActionMana += manaToSpendThisIteration;
+  
+          const isProgressingAction = true;
+          if (isProgressingAction) {
+            const fnInputPartial = { ...fnInput, spentMana: manaToSpendThisIteration };
+            target.callbacks?.onProgressAction?.[action.type]?.find(fn => fn(fnInputPartial))
+            || character.callbacks?.onProgressAction?.[action.type]?.find(fn => fn(fnInputPartial))
+            || this.callbacks?.onProgressAction?.[action.type]?.find(fn => fn(fnInputPartial))
+            || target.genericCallbacks?.onProgressAction?.find(fn => fn(fnInputPartial))
+            || character.genericCallbacks?.onProgressAction?.find(fn => fn(fnInputPartial))
+            || this.genericCallbacks?.onProgressAction?.find(fn => fn(fnInputPartial));
+  
+            allTiles.forEach(tile => {
+              tile.alwaysCallbacks?.onProgressAction?.[action.type]?.forEach(fn => fn(fnInputPartial))
+              tile.alwaysGenericCallbacks?.onProgressAction?.forEach(fn => fn(fnInputPartial))
+            });
+            character.alwaysCallbacks?.onProgressAction?.[action.type]?.forEach(fn => fn(fnInputPartial))
+            character.alwaysGenericCallbacks?.onProgressAction?.forEach(fn => fn(fnInputPartial))
+            this.alwaysCallbacks?.onProgressAction?.[action.type]?.forEach(fn => fn(fnInputPartial))
+            this.alwaysGenericCallbacks?.onProgressAction?.forEach(fn => fn(fnInputPartial))
+          }
+  
+          const isCompletingAction = character.actionList.spentActionMana >= cost;
+          if (isCompletingAction) {
+            actionCompleted = true;
+            whoCompleted.add(characterIndex);
+            target.callbacks?.onCompleteAction?.[action.type]?.find(fn => fn(fnInput))
+            || character.callbacks?.onCompleteAction?.[action.type]?.find(fn => fn(fnInput))
+            || this.callbacks?.onCompleteAction?.[action.type]?.find(fn => fn(fnInput))
+            || target.genericCallbacks?.onCompleteAction?.find(fn => fn(fnInput))
+            || character.genericCallbacks?.onCompleteAction?.find(fn => fn(fnInput))
+            || this.genericCallbacks?.onCompleteAction?.find(fn => fn(fnInput));
+  
+            allTiles.forEach(tile => {
+              tile.alwaysCallbacks?.onCompleteAction?.[action.type]?.forEach(fn => fn(fnInput));
+              tile.alwaysGenericCallbacks?.onCompleteAction?.forEach(fn => fn(fnInput));
+            });
+            character.alwaysCallbacks?.onCompleteAction?.[action.type]?.forEach(fn => fn(fnInput));
+            character.alwaysGenericCallbacks?.onCompleteAction?.forEach(fn => fn(fnInput));
+            this.alwaysCallbacks?.onCompleteAction?.[action.type]?.forEach(fn => fn(fnInput));
+            this.alwaysGenericCallbacks?.onCompleteAction?.forEach(fn => fn(fnInput));
+  
+            character.actionList.spentActionMana = 0;
+            character.actionList.subIndex++;
+            if (character.actionList.subIndex >= action.repetitions) {
+              character.actionList.index += 1;
+              character.actionList.subIndex = 0;
+            }
+          }
+        })
+        spentMana += manaToSpendThisIteration;
       }
     } catch (e) {
-      console.log(e);
-      // Do nothing
+      const error = e as LoopFrameworkError;
+      if (error.code === LoopFrameworkErrorCode.NoAction) {
+        // Do nothing
+      } else {
+        // console.warn(e);
+        throw e;
+      }
     }
-    return path;
+
+    return { spentMana, leftoverMana: manaToSpend - spentMana, actionCompleted, whoCompleted };
   }
 
+  getCell(position: Coordinates) {
+    return this.tileMap.cells[position.j][position.i][position.y][position.x];
+  }
+
+  getNextActions() {
+    const nextActions: {
+      action: FullAction<ActionType, ActionData> | undefined,
+      characterIndex: number,
+      character: Character<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>,
+      target: FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>,
+      targetPos: Coordinates,
+      allTiles: FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>[],
+      cost: number,
+      remainingCost: number,
+    }[] = this.characters.map((character, characterIndex) => {
+      
+      const targetPos: Coordinates = { ...character.position };
+      const allTiles: FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>[] = 
+        this.getCell(targetPos).tiles
+          .map(tile => ({ ...tile, ...this.tileMap.tileDefinitions[tile.id] } as FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>))
+          .filter(({ disabled }) => disabled !== true);
+      const firstTile = allTiles[0];
+
+      const actionReference = character.actionList.actions[character.actionList.index];
+      if (actionReference == null) {
+        return {
+          action: undefined,
+          characterIndex,
+          character,
+          target: firstTile,
+          targetPos: character.position,
+          allTiles,
+          cost: 0,
+          remainingCost: 0,
+        }
+      }
+      const actionDefinition = actionReference.global ? this.possibleActions?.[actionReference.id] : character.actionList.possibleActions?.[actionReference.id];
+      if (actionDefinition == null) {
+        // TODO define error
+        throw {
+          name: 'ActionNotFound',
+          message: `Action with id ${actionReference.id} and global ${actionReference.global} for character ${character.name} (${characterIndex}) not found`,
+          code: LoopFrameworkErrorCode.ActionNotFound,
+        } as LoopFrameworkError;
+      }
+      const action: FullAction<ActionType, ActionData> = { ...actionDefinition, ...actionReference };
+      const actionType: ActionType = actionDefinition.type;
+      const tiles: {cost: number, tile: FullTile<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>}[] =
+        allTiles
+          .map(tile => {
+            const cost = tile.cost?.[actionType]?.({state: this, action, character, target: tile, targetPos});
+            if (cost === undefined) {
+              return null;
+            }
+            return { cost, tile };
+          })
+          .filter(notEmpty);
+      
+      const fnInput = { state: this, action, character, target: firstTile, targetPos };
+      const characterCost = character.cost?.[actionType]?.(fnInput)
+      const globalCost = this.cost?.[actionType]?.(fnInput);
+      const { target, cost } = tiles.length > 0 ? {target: tiles[0].tile, cost: tiles[0].cost} : {target: firstTile, cost: characterCost} ?? {target: firstTile, cost: globalCost};
+      if (cost == null) {
+        // TODO define error
+        throw {
+          name: 'NoCostDefined',
+          message: `No cost defined for the action ${action.type} on the character ${character.name} on the tile ${target.name} at position ${targetPos.i}, ${targetPos.j}, ${targetPos.x}, ${targetPos.y}`,
+          code: LoopFrameworkErrorCode.NoCost,
+        } as LoopFrameworkError;
+      }
+      const remainingCost = cost - character.actionList.spentActionMana;
+      return { action, characterIndex, character, target, targetPos, allTiles, cost, remainingCost };
+    })
+    return nextActions;
+  }
+
+  getPaths(): Path<ActionType>[] {
+    // Make a copy of the state
+    const state = this.clone();
+
+    const paths: Path<ActionType>[] = state.characters.map((_, characterIndex) => ({
+      characterIndex,
+      path: [{
+        position: state.characters[characterIndex].position,
+        index: -1,
+        type: undefined,
+      }],
+    }));
+    try {
+      let nextActions = state.getNextActions();
+      while (nextActions.some(({ remainingCost }) => remainingCost > 0)) {
+        const leastManaToComplete = nextActions.reduce((acc, next) => Math.min(acc, next.remainingCost), Infinity);
+        const result = state.advanceState(leastManaToComplete);
+        result.whoCompleted.forEach(characterIndex => {
+          const character = state.characters[characterIndex];
+          const index = character.actionList.index - 1;
+          const completedAction = character.actionList.actions[index];
+          const type = completedAction.global ? this.possibleActions?.[completedAction.id]?.type : character.actionList.possibleActions?.[completedAction.id]?.type;
+          paths[characterIndex].path.push({
+            position: character.position,
+            index,
+            type,
+          });
+        });
+        nextActions = state.getNextActions();
+      }
+    } catch (e) {
+      console.warn(e);
+      // Do nothing
+    }
+    return paths;
+  }
 
   serializePermanentState(): string {
-    const toSerialize: PermanentState<ActionType, PersistentData, IndPersistentData> = {
-      tilesState: this.tileMap.tiles.map(row => row.map((tile) => ({
-        timesPerformed: tile.timesPerformed,
-        familiarity: tile.familiarity,
-        persistentData: tile.persistentData,
-        entities: tile.entities.map(entity => ({
-          timesPerformed: entity.timesPerformed,
-          familiarity: entity.familiarity,
-          persistentData: entity.persistentData,
-        })),
-      }))),
-      instructions: this.instructionList.instructions,
-      loopCount: this.loopCount,
-      persistentData: this.persistentData,
+    const toSerialize: PermanentState<TilePersistentData, CharacterPersistentData, GlobalPersistentData> = {
+      tilesState: this.tileMap.cells
+        .map(row1 => row1
+          .map((col1) => col1
+            .map(row2 => row2
+              .map(cell => cell.tiles
+                .map(tile => (tile.persistentData)),
+              )))),
+      charactersState: this.characters.map(character => character.persistentData),
+      globalState: this.persistentData,
     };
     return JSON.stringify(toSerialize);
   }
 
   deserializePermanentState(serializedState: string) {
-    const parsed: PermanentState<ActionType, PersistentData, IndPersistentData> = JSON.parse(serializedState);
-    this.tileMap.tiles.forEach((row, y) => row.forEach((tile, x) => {
-      const state = parsed.tilesState[y][x];
-      tile.timesPerformed = state.timesPerformed;
-      tile.familiarity = state.familiarity;
-      tile.persistentData = state.persistentData;
-      tile.entities.forEach((entity, i) => {
-        const entityState = state.entities[i];
-        entity.timesPerformed = entityState.timesPerformed;
-        entity.familiarity = entityState.familiarity;
-        entity.persistentData = entityState.persistentData;
-      });
-    }));
-    this.instructionList.instructions = parsed.instructions;
-    this.loopCount = parsed.loopCount;
-    this.persistentData = parsed.persistentData;
+    const parsed: PermanentState<TilePersistentData, CharacterPersistentData, GlobalPersistentData> = JSON.parse(serializedState);
+    this.tileMap.cells.forEach((row1, i) => row1.forEach((col1, j) => col1.forEach((row2, y) => row2.forEach((cell, x) => cell.tiles.forEach((tile, id) => {
+      tile.persistentData = parsed.tilesState[i][j][y][x][id];
+    })))));
+    this.characters.forEach((character, id) => {
+      character.persistentData = parsed.charactersState[id];
+    });
+    this.persistentData = parsed.globalState;
   }
 
   resetLoop() {
-    this.loopCount++;
     const serialized = this.serializePermanentState();
     this.initialize();
     this.deserializePermanentState(serialized);
   }
 
-  clone(): State<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>{
+  clone(): State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData> {
     const serialized = this.serializePermanentState();
-    const state = new State<ActionType, PersistentData, LoopData, IndPersistentData, IndLoopData>(this.initializer);
+    const state = new State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>(this.initializer);
     state.deserializePermanentState(serialized);
     return state;
   }
 }
 
-function isMoveInstruction(instruction: Instruction<string>): instruction is MoveInstruction {
-  return instruction.type === "move";
+interface PermanentState<TilePersistentData, CharacterPersistentData, GlobalPersistentData> {
+  tilesState: TilePersistentData[][][][][];
+  charactersState: CharacterPersistentData[];
+  globalState: GlobalPersistentData;
 }
 
-interface PermanentState<ActionType extends string, PersistentData, IndPersistentData> {
-  tilesState: (PersistentSingleStateWithPersistentEntities<ActionType, IndPersistentData>)[][];
-  instructions: Instruction<ActionType>[];
-  loopCount: number;
-  persistentData: PersistentData;
+interface Path<ActionType extends string>{
+  characterIndex: number;
+  path: {position: Coordinates, index: number, type: ActionType | undefined}[];
 }
 
+function notEmpty<TValue>(value: TValue | null | undefined): value is TValue {
+  return value !== null && value !== undefined;
+}
