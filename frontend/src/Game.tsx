@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
-import { initialState } from 'logic/src/stuck-in-time/stuck-in-time.ts';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { SITFullTile, SitActionTypes, initialState } from 'logic/src/stuck-in-time/stuck-in-time.ts';
 import { useElementSize } from "@mantine/hooks";
 import './Game.css'
 import Draggable from './utils/Draggable';
-import { EntityWithState, TileWithState } from 'logic/src/State';
+import SVGDefs from './utils/SVGDefs';
+import { Action } from 'logic/src';
 
 function Game() {
   const { ref, width, height } = useElementSize();
+  const svgRef = useRef<SVGSVGElement>(null);
   const layoutRef = useRef<SVGGElement>(null);
-  // const [gameState] = useState(initialState({randomFamiliarity: false}));
-  const gameState = initialState({randomFamiliarity: false});
+  const [gameState, setGameState] = useState(initialState({ randomFamiliarity: false }));
+  // const forceUpdate = useForceUpdate();
   const [showUnknownEntities, setShowUnknownEntities] = useState(false);
+  const [selected, setSelected] = useState<{ x: number, y: number, tile: SITFullTile } | null>(null);
+  // const [time, setTime] = useState(0);
 
   // When q is pressed, toggle showUnknownEntities
-  
+
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
       if (e.key === 'q') {
@@ -25,67 +29,197 @@ function Game() {
       window.removeEventListener('keydown', listener);
     }
   }, []);
-  
+
+  const path = useMemo(() => {
+    console.log("Calculating paths...")
+    return gameState.getPaths()
+  }, [gameState]);
+
+  const addAction = (characterIndex: number, actionId: number) => {
+    setGameState((oldState) => {
+      const newState = oldState.clone();
+      gameState.characters[characterIndex].actionList.actions.push({
+        id: actionId,
+        global: true,
+        repetitions: 1
+      } as Action);
+      return newState
+    });
+
+    // setGameState({ ...gameState });
+    // forceUpdate();
+    // setTime((oldTime) => oldTime + 1);
+  };
+
+  const onClick = (x: number, y: number, tile: SITFullTile) => () => {
+    console.log(x, y, tile);
+    setSelected(old => {
+      if (old?.x === x && old?.y === y) {
+        return null;
+      }
+      return { x, y, tile };
+    });
+  }
 
   return (
     <>
       <div ref={ref} className="GameContainer" >
-        <svg width={width} height={height} viewBox={`${0} ${0} ${width} ${height}`}>
-          <g ref={layoutRef} >
-          {gameState.tileMap.tiles.map((row, y) => {
-            return row.map((tile, x) => {
-              const eTile = tile as TileWithState<object, object> & {color: string, id: number, _id: number};
-              return (
-                <g key={`${x}-${y}`}>
-                  <rect
-                    x={x * 32}
-                    y={y * 32}
-                    width={32}
-                    height={32}
-                    fill={eTile.color}
-                    onClick={() => {console.log(eTile._id, eTile.id, eTile.name, {x, y})}}
-                  />
-                  <text
-                    x={x * 32 + 8}
-                    y={y * 32 + 16}
-                    fontSize={8}
-                    fill="white"
-                  > {eTile.id} </text>
-                  {tile.entities.map((entity, i) => {
-                    const eEntity = entity as EntityWithState<object, object> & {color: string, id: number, _id: number};
-                    if (!showUnknownEntities && eEntity.id != null) {
-                      return
-                    }
-                    return (
-                      <g key={`${x}-${y}-${i}`}>
+        {/* <Canvas width={width} height={height} draw={draw} ref={canvasRef}/>
+        <Draggable targetRef={canvasRef} startOffset={{ x: 500, y: 500 }} setOffsetScale={setOffsetScale}/> */}
+        <svg width={width} height={height} viewBox={`${0} ${0} ${width} ${height}`} ref={svgRef}>
+          <g ref={layoutRef}>
+            <g id="grid">
+              {gameState.tileMap.cells[0][0].map((row, y) => (
+                row.map((cell, x) => {
+                  return (
+                    <g key={`${x}-${y}`} transform={`translate(${x * 16}, ${y * 16})`}>
+                      {cell.tiles.toReversed().map((tile, i) => {
+                        const options = tile.loopData.options;
+                        const tileDefinition = gameState.tileMap.tileDefinitions[tile.id];
+                        const id = tileDefinition.definitionLoopData.id;
+                        // const fill = showUnknownEntities ? (tileDefinition.name.startsWith("Unknown") ? `fuchsia` : `url(#${id})`) : `url(#${id})`;
+                        const fill = `url(#${id})`
+                        const fullTile: SITFullTile = { ...tile, ...tileDefinition };
+                        return (
+                          <g
+                            key={`${x}-${y}-${i}`}
+                            transform-origin='8 8'
+                            transform={`scale(${options.flippedX ? -1 : 1}, ${options.flippedY ? -1 : 1}) rotate(${options.rotate90 ? -90 : 0})`}
+                            onClick={onClick(x, y, fullTile)}
+                          >
+                            <rect
+                              x={0}
+                              y={0}
+                              width={16}
+                              height={16}
+                              fill={fill}
+                            />
+                            {
+                              showUnknownEntities && (tileDefinition.name.startsWith("Unknown")) && (
+                                <rect
+                                  x={0}
+                                  y={0}
+                                  width={16}
+                                  height={16}
+                                  fill={`transparent`}
+                                  stroke='fuchsia'
+                                />
+                              )
+                            }
+                          </g>
+                        );
+                      })}
+                    </g>
+                  )
+                })))}
+            </g>
+            <g style={{ pointerEvents: 'none' }}>
+              {path.map((path) =>
+                path.path.map((pathSegment, i) => {
+                  // console.log(path, pathSegment)
+                  return (
+                    <g key={`character-${path.characterIndex}-pathSegment-${i}`} transform={`translate(${pathSegment.position.x * 16}, ${pathSegment.position.y * 16})`}>
                       <rect
-                        key={`${x}-${y}-${i}`}
-                        x={x * 32 + 8}
-                        y={y * 32 + 8}
+                        x={0}
+                        y={0}
                         width={16}
                         height={16}
-                        fill={eEntity.color}
-                        onClick={() => {console.log(eEntity._id, eEntity.id, eEntity.name, {x, y})}}
-                      /> 
-                      <text
-                          x={x * 32 + 9}
-                          y={y * 32 + 16}
-                          fontSize={8}
-                          fill="yellow"
-                        > {eEntity.id || eEntity.name} </text>
-                      </g>
-                    );
-                  })}
+                        fill={`url(#path-${9})`}
+                      />
+                    </g>
+                  );
+                }
+                ))}
+            </g>
+            <g
+              key={`player`}
+              transform={`translate(${gameState.characters[0].position.x * 16}, ${gameState.characters[0].position.y * 16})`}
+
+              style={{ pointerEvents: 'none' }}
+            >
+              <rect
+                x={0}
+                y={0}
+                width={16}
+                height={16}
+                fill={`url(#hero)`}
+              />
+            </g>
+            {
+              selected && (
+                <g
+                  key={`selected`}
+                  transform={`translate(${selected.x * 16}, ${selected.y * 16})`}
+                  style={{ pointerEvents: 'none' }}>
+                  <rect
+                    x={0}
+                    y={0}
+                    width={16}
+                    height={16}
+                    stroke='white'
+                    fill={`transparent`}
+                  />
+                  <g
+                    transform={`translate(16, 0)`}
+                    // stroke='white'
+                    fill={`black`}
+                  >
+                    <rect x={0} y={0} width={16 * 7} height={16 * 2.5} fill='#00000088' stroke='black' />
+                    <g transform={`translate(2, 2)`}>
+                      <text x={0} y={8} fontSize={8} fill='white'>
+                        {selected.tile.name} - {selected.x}, {selected.y}
+                      </text>
+                      {
+                        SitActionTypes
+                          .map((actionType) => ({ actionType, cost: selected.tile.cost?.[actionType]?.({ state: gameState, character: gameState.characters[0], action: { id: 0, name: "", type: actionType, data: {}, global: true, repetitions: 1 }, target: selected.tile, targetPos: { i: 0, j: 0, x: selected.x, y: selected.y } }) }))
+                          .filter(({ cost }) => cost !== undefined && cost !== Infinity)
+                          .map(({ actionType, cost }, i) => (
+                            <text key={i} x={0} y={8 + 6 + 6 * i} fontSize={6} fill='white'>
+                              {actionType}: {cost}
+                            </text>
+                          ))
+                      }
+                    </g>
+                  </g>
                 </g>
-              );
-            });
-          })}
+              )
+            }
           </g>
-        <Draggable targetRef={layoutRef} startOffset={{ x: 500, y: 500 }} />
+          <Draggable targetRef={svgRef} startOffset={{ x: -2666, y: -2327 }} startScale={337.5} setOffsetScale={({ offset, scale }) => {
+            if (!layoutRef.current) {
+              return;
+            }
+            layoutRef.current.style.transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale}%)`;
+          }} />
+          <SVGDefs />
         </svg>
+        {/* <div className='InterfaceContainer'> */}
+        <div className='ActionListEditorContainer'>
+          <div className='ActionListButtons'>
+            {
+              Object.entries(gameState.possibleActions ?? {}).map(([id, action], i) => (
+                <button key={i} onClick={() => addAction(0, parseInt(id))}>{action.name}</button>
+              ))
+            }
+          </div>
+          <div className='ActionListContainer'>
+            <ul>
+              {path[0].path.map((pathSegment, i) => {
+                return <li key={i}>{pathSegment.actionName} - ({pathSegment.position.x}, {pathSegment.position.y}) - {pathSegment.actionCost} ({pathSegment.totalCost})</li>
+              })}
+            </ul>
+          </div>
+        </div>
+        {/* </div> */}
+
       </div>
     </>
   )
 }
 
+//441
+//481
+
+//268435897
+//268435937
 export default Game

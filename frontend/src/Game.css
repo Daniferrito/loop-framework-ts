@@ -1,5 +1,6 @@
 #root {
   text-align: center;
+  background-color: black;
 }
 
 .GameContainer {
@@ -9,4 +10,45 @@
   left: 0;
   right: 0;
   bottom: 0;
+  image-rendering: pixelated;
+}
+
+.GameContainer > * {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.InterfaceContainer {
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: 1fr 4fr;
+  grid-template-rows: 2fr 1fr;
+}
+
+.ActionListEditorContainer {
+  right: 80%;
+  bottom: 30%;
+  pointer-events: unset;
+  display: grid;
+  flex-direction: row;
+  grid-template-columns: 1fr;
+  grid-template-rows: 100px 1fr;
+
+  background-color: black;
+}
+.ActionListButtons {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.ActionListContainer {
+  display: flex;
+  flex-direction: column;
+  overflow-y: scroll;
 }

@@ -313,14 +313,20 @@ describe(`getPaths`, () => {
       characterIndex: 0,
       path: [
         {
+          actionName: "Start",
           index: -1,
           position: {i: 0, j: 0, x: 0, y: 0},
           type: undefined,
+          actionCost: 0,
+          totalCost: 0,
         },
         {
+          actionName: "Move Right",
           index: 0,
           position: {i: 0, j: 0, x: 1, y: 0},
           type: "move",
+          actionCost: 10,
+          totalCost: 10,
         }
       ],
     }]);

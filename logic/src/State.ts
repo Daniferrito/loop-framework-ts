@@ -83,6 +83,13 @@ export class State<ActionType extends string, ActionData, TilePersistentData, Ti
     if (manaToSpend <= 0) {
       return { spentMana: 0, leftoverMana: 0, actionCompleted: false, whoCompleted: new Set() };
     }
+    if (manaToSpend === Infinity) {
+      throw {
+        name: 'InfiniteMana',
+        message: 'Cannot spend infinite mana',
+        code: LoopFrameworkErrorCode.InfiniteCost,
+      } as LoopFrameworkError;
+    }
     let spentMana = 0;
     let actionCompleted = false;
     const whoCompleted: Set<number> = new Set();
@@ -259,7 +266,7 @@ export class State<ActionType extends string, ActionData, TilePersistentData, Ti
       const fnInput = { state: this, action, character, target: firstTile, targetPos };
       const characterCost = character.cost?.[actionType]?.(fnInput)
       const globalCost = this.cost?.[actionType]?.(fnInput);
-      const { target, cost } = tiles.length > 0 ? {target: tiles[0].tile, cost: tiles[0].cost} : {target: firstTile, cost: characterCost} ?? {target: firstTile, cost: globalCost};
+      const { target, cost } = tiles.length > 0 ? {target: tiles[0].tile, cost: tiles[0].cost} : characterCost != null ? {target: firstTile, cost: characterCost} : {target: firstTile, cost: globalCost};
       if (cost == null) {
         // TODO define error
         throw {
@@ -277,36 +284,53 @@ export class State<ActionType extends string, ActionData, TilePersistentData, Ti
   getPaths(): Path<ActionType>[] {
     // Make a copy of the state
     const state = this.clone();
+    state.resetLoop();
+    this.characters.forEach((character, characterIndex) => {
+      state.characters[characterIndex].actionList.actions = { ...character.actionList.actions };
+    });
 
     const paths: Path<ActionType>[] = state.characters.map((_, characterIndex) => ({
       characterIndex,
       path: [{
         position: state.characters[characterIndex].position,
         index: -1,
+        actionName: 'Start',
         type: undefined,
+        actionCost: 0,
+        totalCost: 0,
       }],
     }));
     try {
       let nextActions = state.getNextActions();
+      let totalCost = 0;
       while (nextActions.some(({ remainingCost }) => remainingCost > 0)) {
         const leastManaToComplete = nextActions.reduce((acc, next) => Math.min(acc, next.remainingCost), Infinity);
         const result = state.advanceState(leastManaToComplete);
+        totalCost += result.spentMana;
         result.whoCompleted.forEach(characterIndex => {
           const character = state.characters[characterIndex];
           const index = character.actionList.index - 1;
           const completedAction = character.actionList.actions[index];
-          const type = completedAction.global ? this.possibleActions?.[completedAction.id]?.type : character.actionList.possibleActions?.[completedAction.id]?.type;
+          const actionDefinition = completedAction.global ? state.possibleActions?.[completedAction.id] : character.actionList.possibleActions?.[completedAction.id];
+          const type = actionDefinition?.type;
           paths[characterIndex].path.push({
             position: character.position,
             index,
+            actionName: actionDefinition?.name ?? "Unknown",
             type,
+            actionCost: result.spentMana,
+            totalCost,
           });
         });
         nextActions = state.getNextActions();
       }
     } catch (e) {
-      console.warn(e);
-      // Do nothing
+      const error = e as LoopFrameworkError;
+      if (error.code === LoopFrameworkErrorCode.NoAction || error.code === LoopFrameworkErrorCode.InfiniteCost) {
+        // Do nothing
+      } else {
+        console.warn(e);
+      }
     }
     return paths;
   }
@@ -344,11 +368,39 @@ export class State<ActionType extends string, ActionData, TilePersistentData, Ti
   }
 
   clone(): State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData> {
-    const serialized = this.serializePermanentState();
-    const state = new State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>(this.initializer);
-    state.deserializePermanentState(serialized);
-    return state;
+    const clone = cloneObject(this);
+    Object.setPrototypeOf(clone, Object.getPrototypeOf(this));
+    return clone;
+
+    // const serialized = this.serializePermanentState();
+    // const state = new State<ActionType, ActionData, TilePersistentData, TileLoopData, TileDefinitionLoopData, CharacterPersistentData, CharacterLoopData, GlobalPersistentData, GlobalLoopData>(this.initializer);
+    // state.deserializePermanentState(serialized);
+    // return state;
   }
+}
+
+function cloneObject<T>(obj: T): T {
+  // null, 0, false
+  if (!obj) {
+      return obj;
+  }
+
+  // Array
+  if (Array.isArray(obj)) {
+      return obj.map(val => cloneObject(val)) as T;
+  }
+
+  // Object
+  if (typeof obj === 'object') {
+      const result: Partial<T> = {};
+      Object.keys(obj).forEach((key) => {
+          result[key as keyof T] = cloneObject(obj[key as keyof T]);
+      });
+      return result as T;
+  }
+
+  // Anything else
+  return obj;
 }
 
 interface PermanentState<TilePersistentData, CharacterPersistentData, GlobalPersistentData> {
@@ -359,7 +411,7 @@ interface PermanentState<TilePersistentData, CharacterPersistentData, GlobalPers
 
 interface Path<ActionType extends string>{
   characterIndex: number;
-  path: {position: Coordinates, index: number, type: ActionType | undefined}[];
+  path: {position: Coordinates, index: number, actionName:string, type: ActionType | undefined, actionCost: number, totalCost: number}[];
 }
 
 function notEmpty<TValue>(value: TValue | null | undefined): value is TValue {

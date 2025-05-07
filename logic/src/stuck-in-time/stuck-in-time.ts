@@ -1,8 +1,9 @@
 import tilesMap from "./WorldTerrain_Layer_tiledata";
 import entitiesMap from "./WorldElements_Layer_tiledata";
-import { ActionDefinition, Cell, GenericCalc, OnCompleteFunc, OnPartialFunc, PerActionType, State, Tile, TileDefinition, TileMap } from "..";
+import { ActionDefinition, Cell, FullTile, GenericCalc, OnCompleteFunc, OnPartialFunc, PerActionType, State, Tile, TileDefinition, TileMap } from "..";
 
-export type AT = "move" | "attack" | "interact" | "speak";
+export type AT = "move" | "attack" | "interact" | "speak"
+export const SitActionTypes = ["move", "attack", "interact", "speak"] as const;
 type AD = { x?: number, y?: number };
 type TP = {
   familiarity: PerActionType<AT, number>;
@@ -19,6 +20,8 @@ type TL = {
 };
 type TDL = {
   id: number;
+  ghostLevel?: number;
+  goldLevel?: number;
 };
 type CP = {};
 type CL = {};
@@ -41,20 +44,21 @@ type GL = {
   inventory: { [key: string]: number };
 };
 export class SITState extends State<AT, AD, TP, TL, TDL, CP, CL, GP, GL> { };
-type SITTileMap = TileMap<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
-type SITCell = Cell<TP, TL>;
-type SITTile = Tile<TP, TL>;
-type SITTileDefinition = TileDefinition<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
-type SITGenericCalc = GenericCalc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
-type SITOnCompleteFunc = OnCompleteFunc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
-type SITOnPartialFunc = OnPartialFunc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITTileMap = TileMap<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITCell = Cell<TP, TL>;
+export type SITTile = Tile<TP, TL>;
+export type SITFullTile = FullTile<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITTileDefinition = TileDefinition<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITGenericCalc = GenericCalc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITOnCompleteFunc = OnCompleteFunc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
+export type SITOnPartialFunc = OnPartialFunc<AT, AD, TP, TL, TDL, CP, CL, GP, GL>;
 export type SITActionDefinition = ActionDefinition<AT, AD>;
 
-const staticFamiliarityGainFunction: SITOnCompleteFunc = ({action, target}) => {
+const staticFamiliarityGainFunction: SITOnCompleteFunc = ({ action, target }) => {
   let toGain = 0;
   const timesPerformedThisLoop = target.loopData.timesPerformedThisLoop[action.type] ?? 0;
   if (timesPerformedThisLoop === 0) {
-    toGain =  20 * 3;
+    toGain = 20 * 3;
   } else {
     toGain = 20;
   }
@@ -63,13 +67,13 @@ const staticFamiliarityGainFunction: SITOnCompleteFunc = ({action, target}) => {
 };
 const randomInRange = (min: number, max: number) =>
   Math.random() * (max - min) + min;
-const randomFamiliarityGainFunction: SITOnCompleteFunc = ({action, target}) => {
+const randomFamiliarityGainFunction: SITOnCompleteFunc = ({ action, target }) => {
   let toGain = 0;
   const timesPerformedThisLoop = target.loopData.timesPerformedThisLoop[action.type] ?? 0;
   if (timesPerformedThisLoop === 0) {
-    toGain =  20 * 3* randomInRange(0.7, 1.3);
+    toGain = 20 * 3 * randomInRange(0.7, 1.3);
   } else {
-    toGain = 20* randomInRange(0.7, 1.3);
+    toGain = 20 * randomInRange(0.7, 1.3);
   }
   target.persistentData.familiarity[action.type] = (target.persistentData.familiarity[action.type] ?? 0) + toGain;
   target.loopData.timesPerformedThisLoop[action.type] = timesPerformedThisLoop + 1;
@@ -134,7 +138,7 @@ const fCFMemo: {
 } = {}
 const familiarityCostFormula: (baseCost: number, actionType: AT) => SITGenericCalc = (baseCost, actionType) => {
   const key = `${baseCost}-${actionType}`
-  return fCFMemo[key] ?? (fCFMemo[key] = ({target}) => {
+  return fCFMemo[key] ?? (fCFMemo[key] = ({ target }) => {
     const targetFamiliarity = target.persistentData.familiarity[actionType] ?? 0;
     return baseCost / getFamiliarityCostDivider(targetFamiliarity);
   })
@@ -157,26 +161,26 @@ const maxManaFormula: (state: SITState) => number = (state) => {
   return 500 + state.loopData.stats.spirit * 200;
 }
 
-const dependantOnStacksAndFamiliarityFormula: (f: (stacks: number) => number, actionType: AT) => SITGenericCalc = (f, actionType) => ({target}) => {
+const dependantOnStacksAndFamiliarityFormula: (f: (stacks: number) => number, actionType: AT) => SITGenericCalc = (f, actionType) => ({ target }) => {
   const r = f(target.loopData.stacks ?? 1);
   const targetFamiliarity = target.persistentData.familiarity[actionType] ?? 0;
   return r / getFamiliarityCostDivider(targetFamiliarity);
 };
 
-const move: SITOnCompleteFunc = ({state, action}) => {
+const move: SITOnCompleteFunc = ({ state, action }) => {
   const oP = state.characters[0].position;
   const dP = action.data;
-  const newPosition = {i: oP.i, j: oP.j, x: oP.x+(dP.x ?? 0), y: oP.y+(dP.y ?? 0)};
+  const newPosition = { i: oP.i, j: oP.j, x: oP.x + (dP.x ?? 0), y: oP.y + (dP.y ?? 0) };
   const cell = state.getCell(newPosition);
   if (cell.tiles.some(tile => tile.loopData.blocked === true)) {
     throw new Error("Can't move there");
     return
   }
-  state.characters[0].position = {i: oP.i, j: oP.j, x: oP.x+(dP.x ?? 0), y: oP.y+(dP.y ?? 0)};
+  state.characters[0].position = { i: oP.i, j: oP.j, x: oP.x + (dP.x ?? 0), y: oP.y + (dP.y ?? 0) };
   return false;
 }
 
-const reduceMana: SITOnPartialFunc = ({state, spentMana}) => {
+const reduceMana: SITOnPartialFunc = ({ state, spentMana }) => {
   state.loopData.mana.current -= spentMana;
 }
 
@@ -197,7 +201,7 @@ const drinkPotion: SITOnPartialFunc = ({ state }) => {
 //   };
 // }
 
-type TileGenerator = (definitionLoopData: TDL, loopData: TL) => { definition: SITTileDefinition, loopData: TL, persistentData?: TP, disabled?: boolean};
+type TileGenerator = (definitionLoopData: TDL, loopData: TL) => { definition: SITTileDefinition, loopData: TL, persistentData?: TP, disabled?: boolean };
 
 const defaultTile: TileGenerator = (definitionLoopData, loopData) => ({
   definition: {
@@ -505,6 +509,8 @@ export const tileMapping: { [key in number]?: TileGenerator } = {
   227: woods,
   228: woods,
   229: woods,
+  329: woods,
+  376: woods,
 
   255: cliff,
   256: cliff,
@@ -578,7 +584,7 @@ const fireflyDefinition: SITTileDefinition = {
   },
   callbacks: {
     onCompleteAction: {
-      interact: [({state, target}) => {
+      interact: [({ state, target }) => {
         if (target.loopData.stacks ?? 0 > 0) {
           state.loopData.mana.current += 500 + (50 * skillLevel(state.persistentData.skills["FireflyFriend"] ?? 0));
           state.loopData.mana.current = Math.min(state.loopData.mana.current, state.loopData.mana.max);
@@ -635,7 +641,7 @@ const oldMan: TileGenerator = (definitionLoopData, loopData) => ({
     name: "Old man",
     callbacks: {
       onCompleteAction: {
-        interact: [({state}) => {
+        interact: [({ state }) => {
           if (state.loopData.inventory["bat"] ?? 0 > 0) {
             state.loopData.inventory["s_potion"] = (state.loopData.inventory["s_potion"] ?? 0) + 1;
             state.loopData.inventory["bat"] = (state.loopData.inventory["bat"] ?? 1) - 1;
@@ -661,7 +667,7 @@ const fenceGate: TileGenerator = (definitionLoopData, loopData) => ({
     name: "Fence Gate",
     callbacks: {
       onCompleteAction: {
-        attack: [({state, target}) => {
+        attack: [({ state, target }) => {
           const stack = target.loopData.stacks ?? 1;
           if (stack === 0) {
             return false
@@ -700,7 +706,7 @@ const rats: TileGenerator = (definitionLoopData, loopData) => ({
     cost: { move: familiarityCostFormula(50, "move"), attack: attackCostFormula(100) },
     callbacks: {
       onCompleteAction: {
-        attack: [({state, target}) => {
+        attack: [({ state, target }) => {
           const stack = target.loopData.stacks ?? 1;
           if (stack === 0) {
             return false
@@ -733,8 +739,8 @@ const critterDefinition: SITTileDefinition = {
   },
   callbacks: {
     onCompleteAction: {
-      attack: [({state, target}) => {
-      const stack = target.loopData.stacks ?? 1;
+      attack: [({ state, target }) => {
+        const stack = target.loopData.stacks ?? 1;
         if (stack === 0) {
           return false
         } else {
@@ -775,6 +781,126 @@ const doubleCritter: TileGenerator = (definitionLoopData, loopData) => ({
   },
 });
 
+const wereCritter: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Were Critter",
+    cost: {
+      move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 75 : 200 * stacks, "move"),
+      attack: attackCostFormula(4000)
+    },
+    callbacks: {
+      onCompleteAction: {
+        attack: [({ state, target }) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            state.loopData.xp += 3000 * (1 + 0.1 * skillLevel(state.persistentData.skills["CritterAffinity"] ?? 0));
+            state.loopData.inventory["tail"] = (state.loopData.inventory["tail"] ?? 0) + 1;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
+    },
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 1,
+  },
+});
+
+const beast: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Beast",
+    cost: {
+      move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 100 : Infinity, "move"),
+      attack: attackCostFormula(7500)
+    },
+    callbacks: {
+      onCompleteAction: {
+        attack: [({ state, target }) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            state.loopData.xp += 7000 * (1 + 0.1 * skillLevel(state.persistentData.skills["BeastAffinity"] ?? 0));
+            state.loopData.inventory["tooth"] = (state.loopData.inventory["tooth"] ?? 0) + 1;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
+    },
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 1,
+  },
+});
+
+const hydra: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Hydra",
+    cost: {
+      move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 300 : Infinity, "move"),
+      attack: attackCostFormula(20_000)
+    },
+    callbacks: {
+      onCompleteAction: {
+        attack: [({ state, target }) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            state.loopData.xp += 7000;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
+    },
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 1,
+  },
+});
+
+const fireBat: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Fire Bat",
+    cost: {
+      // TODO fill this
+      // move: dependantOnStacksAndFamiliarityFormula((stacks) => (stacks === 0) ? 100 : Infinity, "move"),
+      attack: attackCostFormula(3000)
+    },
+    callbacks: {
+      onCompleteAction: {
+        attack: [({ state, target }) => {
+          const stack = target.loopData.stacks ?? 1;
+          if (stack === 0) {
+            return false
+          } else {
+            state.loopData.xp += 3000;
+            state.persistentData.skills["SpiritControl"] = (state.persistentData.skills["SpiritControl"] ?? 0) + 50;
+            target.loopData.stacks = stack - 1;
+            return true;
+          }
+        }]
+      },
+    },
+    definitionLoopData,
+  },
+  loopData: {
+    ...loopData,
+    stacks: 1,
+  },
+});
+
 const cave: TileGenerator = (definitionLoopData, loopData) => ({
   definition: {
     name: "Cave",
@@ -784,7 +910,7 @@ const cave: TileGenerator = (definitionLoopData, loopData) => ({
     },
     callbacks: {
       onCompleteAction: {
-        attack: [({state, target}) => {
+        attack: [({ state, target }) => {
           const stack = target.loopData.stacks ?? 1;
           if (stack === 0) {
             return false
@@ -810,7 +936,7 @@ const barrel: TileGenerator = (definitionLoopData, loopData) => ({
     name: "Barrel",
     callbacks: {
       onCompleteAction: {
-        interact: [({state, target}) => {
+        interact: [({ state, target }) => {
           const stack = target.loopData.stacks ?? 1;
           if (stack ?? 0 > 0) {
             state.loopData.inventory["s_potion"] = (state.loopData.inventory["s_potion"] ?? 0) + 1;
@@ -841,7 +967,7 @@ const scarecrowDefinition: SITTileDefinition = {
   },
   callbacks: {
     onCompleteAction: {
-      interact: [({state, target}) => {
+      interact: [({ state, target }) => {
         const stack = target.loopData.stacks ?? 1;
         if (stack ?? 0 > 0) {
           state.persistentData.skills["HandToHand"] = (state.persistentData.skills["HandToHand"] ?? 0) + 25;
@@ -886,7 +1012,7 @@ const carrot: TileGenerator = (definitionLoopData, loopData) => ({
     name: "Carrot",
     callbacks: {
       onCompleteAction: {
-        interact: [({state, target}) => {
+        interact: [({ state, target }) => {
           const stack = target.loopData.stacks ?? 1;
           if (stack ?? 0 > 0) {
             state.loopData.inventory["carrot"] = (state.loopData.inventory["carrot"] ?? 0) + 1;
@@ -914,7 +1040,7 @@ const altar: TileGenerator = (definitionLoopData, loopData) => ({
     name: "Altar",
     callbacks: {
       onCompleteAction: {
-        interact: [({state}) => {
+        interact: [({ state }) => {
           if (state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
             state.loopData.stats.spirit += 1;
             state.loopData.spentLevels += 1;
@@ -925,7 +1051,7 @@ const altar: TileGenerator = (definitionLoopData, loopData) => ({
           }
           return true;
         }],
-        attack: [({state}) => {
+        attack: [({ state }) => {
           if (state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
             state.loopData.stats.body += 1;
             state.loopData.spentLevels += 1;
@@ -935,7 +1061,7 @@ const altar: TileGenerator = (definitionLoopData, loopData) => ({
           }
           return true;
         }],
-        speak: [({state}) => {
+        speak: [({ state }) => {
           if (state.loopData.spentLevels < playerLevel(state.loopData.xp)) {
             state.loopData.stats.heart += 1;
             state.loopData.spentLevels += 1;
@@ -956,12 +1082,12 @@ const altar: TileGenerator = (definitionLoopData, loopData) => ({
   loopData,
 });
 
-const ghost: TileGenerator = (definitionLoopData, loopData) => ({
+const ghost: (ghostLevel: number) => TileGenerator = (ghostLevel) => (definitionLoopData, loopData) => ({
   definition: {
-    name: "Altar",
+    name: "Ghost",
     callbacks: {
       onCompleteAction: {
-        interact: [({state}) => {
+        interact: [({ state }) => {
           state.loopData.stats.spirit += 1;
           state.loopData.mana.max = maxManaFormula(state);
           return true;
@@ -975,7 +1101,27 @@ const ghost: TileGenerator = (definitionLoopData, loopData) => ({
       speak: familiarityCostFormula(75, "speak"),
     },
     // TODO
-    definitionLoopData,
+    definitionLoopData: {
+      ...definitionLoopData,
+      ghostLevel,
+    },
+  },
+  loopData,
+});
+
+const chancellorGhost: TileGenerator = (definitionLoopData, loopData) => ({
+  definition: {
+    name: "Chancellor Ghost",
+    callbacks: {
+    },
+    cost: {
+      speak: familiarityCostFormula(4000, "speak"),
+    },
+    // TODO
+    definitionLoopData: {
+      ...definitionLoopData,
+      ghostLevel: 1,
+    },
   },
   loopData,
 });
@@ -985,7 +1131,7 @@ const bonfire: TileGenerator = (definitionLoopData, loopData) => ({
     name: "Bonfire",
     callbacks: {
       onCompleteAction: {
-        interact: [({state}) => {
+        interact: [({ state }) => {
           if (state.loopData.inventory["hat"] ?? 0 > 0) {
             state.persistentData.skills["VillagerAffinity"] = (state.persistentData.skills["VillagerAffinity"] ?? 0) + 115;
             state.loopData.inventory["hat"] = (state.loopData.inventory["hat"] ?? 1) - 1;
@@ -1028,7 +1174,7 @@ const hiddenCacheDefinition: SITTileDefinition = {
   },
 };
 
-const hiddenCache: TileGenerator = (definitionLoopData, loopData) => ({
+const hiddenCache:(goldLevel: number) => TileGenerator = (goldLevel) => (definitionLoopData, loopData) => ({
   definition: {
     ...hiddenCacheDefinition,
     name: "Hidden Cache",
@@ -1037,7 +1183,10 @@ const hiddenCache: TileGenerator = (definitionLoopData, loopData) => ({
       interact: familiarityCostFormula(250, "interact"),
     },
     // TODO
-    definitionLoopData,
+    definitionLoopData: {
+      ...definitionLoopData,
+      goldLevel,
+    },
   },
   loopData,
 });
@@ -1057,7 +1206,15 @@ export const entityMapping: { [key in number]?: TileGenerator } = {
   200: threeFireflies,
 
   485: altar,
-  1045: ghost,
+
+  644: ghost(1),
+  965: ghost(2),
+  1005: ghost(3),
+  1045: ghost(4),
+  1085: ghost(5),
+
+  890: chancellorGhost,
+
   1125: bonfire,
   406: barrel,
   320: flimsyScarecrow,
@@ -1070,14 +1227,20 @@ export const entityMapping: { [key in number]?: TileGenerator } = {
   244: rats,
   242: critter,
   282: doubleCritter,
+  848: wereCritter,
+  240: beast,
+  885: hydra,
+  680: fireBat,
   373: cave,
 
-  572: hiddenCache,
-  613: hiddenCache,
-  653: hiddenCache,
-  693: hiddenCache,
-  734: hiddenCache,
+  // TODO - check that the values are right
+  572: hiddenCache(1),
+  613: hiddenCache(2),
+  653: hiddenCache(3),
+  693: hiddenCache(4),
+  734: hiddenCache(5),
   367: fence,
+  365: fence,
 
   405: visualEntity,
 };
@@ -1109,7 +1272,7 @@ const tileMap: () => SITTileMap = () => {
     }
 
     const mappedTile = tileMapping[id] ?? entityMapping[id];
-    const {definition, loopData, persistentData, disabled} = mappedTile ? mappedTile(definitionLoopData, baseLoopData) : defaultTile(definitionLoopData, baseLoopData);
+    const { definition, loopData, persistentData, disabled } = mappedTile ? mappedTile(definitionLoopData, baseLoopData) : defaultTile(definitionLoopData, baseLoopData);
     if (!(id in tileDefinitions)) {
       tileDefinitions[id] = definition;
     }
